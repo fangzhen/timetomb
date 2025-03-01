@@ -1,0 +1,31 @@
+[package]
+authors = ["Fang Zhen <fangzhen@live.com>"]
+edition = "2021"
+readme = "README.md"
+name = "timetomb"
+version = "0.1.0"
+
+[dependencies]
+log = { version = "0.4.5", default-features = false }
+acpi= { version = "5.0.0", default-features = false }
+intrusive-collections = {version = "0.9", default-features = false}
+
+[[bin]]
+name = "boot"
+path = "boot/main.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "vmkernel"
+path = "main/main.rs"
+test = false
+bench = false
+
+[lib]
+path = "share/lib.rs"
+
+[profile.release]
+codegen-units = 1 # better optimizations
+debug = true # symbols are nice and they don't increase the size on Flash
+lto = true # better optimizations
