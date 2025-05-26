@@ -10,6 +10,7 @@
   "max-atomic-width": 64,
   "panic-strategy": "abort",
   "relro-level": "full",
+  "rustc-abi": "x86-softfloat",
   "stack-probes": {
     "kind": "inline-or-call",
     "min-llvm-version-for-inline": [

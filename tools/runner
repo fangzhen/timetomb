@@ -12,4 +12,4 @@ fi
 esp_dir=target/x86_64-unknown-uefi/esp/
 mkdir -p $esp_dir/EFI/Boot/
 cp -f $target $esp_dir/EFI/Boot/BootX64.efi
-qemu-system-x86_64 -nodefaults -machine q35 -m 128M -drive if=pflash,format=raw,file=/usr/share/ovmf/x64/OVMF_CODE.fd,readonly=on -drive if=pflash,format=raw,file=/usr/share/ovmf/x64/OVMF_VARS.fd,readonly=on -drive format=raw,file=fat:rw:$esp_dir -nographic -serial stdio -device isa-debug-exit,iobase=0xf4,iosize=0x04 -monitor pty $extra_qemu_arg
+qemu-system-x86_64 -nodefaults -machine q35 -m 128M -drive if=pflash,format=raw,file=/usr/share/ovmf/x64/OVMF_CODE.4m.fd,readonly=on -drive if=pflash,format=raw,file=/usr/share/ovmf/x64/OVMF_VARS.4m.fd,readonly=on -drive format=raw,file=fat:rw:$esp_dir -nographic -serial stdio -device isa-debug-exit,iobase=0xf4,iosize=0x04 -monitor pty $extra_qemu_arg
