@@ -1,4 +1,3 @@
-use core::ptr::{addr_of, addr_of_mut};
 use log::*;
 use timetomb::arch::x86_64::mm as arch_mm;
 use timetomb::kernel::mm::{memblock, LinearAddr, PhysicalAddr, PAGE_SIZE};
@@ -37,23 +36,23 @@ fn max_pt_pages(max_addr: usize) -> usize {
 }
 
 pub fn init_paging() -> (PhysicalAddr, usize) {
-    let max_physical = memblock::get_max_addr(unsafe { &*addr_of!(memblock::ALL_MEMBLOCKS) });
+    let max_physical = memblock::get_max_addr(unsafe { &*(&raw const memblock::ALL_MEMBLOCKS) });
     let size = max_pt_pages(max_physical) * PAGE_SIZE + 16 * PAGE_SIZE; // TODO: hardcode 16 pages for extra paging tables (kernel text for now)
     let pgt_addr = memblock::allocate_physical_memory(0, size, PAGE_SIZE, 0);
     unsafe {
         PGT_MEMORY.current = pgt_addr;
         PGT_MEMORY.max = size + pgt_addr;
-        let cr3_addr = allocate_page_table(&mut *addr_of_mut!(PGT_MEMORY));
+        let cr3_addr = allocate_page_table(&mut *(&raw mut PGT_MEMORY));
         CR3_ADDR = cr3_addr;
         paging_direct_map(
-            || allocate_page_table(&mut *addr_of_mut!(PGT_MEMORY)),
+            || allocate_page_table(&mut *(&raw mut PGT_MEMORY)),
             max_physical,
             cr3_addr,
         );
     }
 
     // TODO(fangzhen) only map used memory.
-    let max_used = memblock::get_max_addr(unsafe { &*addr_of!(memblock::USED_MEMBLOCKS) });
+    let max_used = memblock::get_max_addr(unsafe { &*(&raw const memblock::USED_MEMBLOCKS) });
     let size = max_pt_pages(max_used) * PAGE_SIZE;
     let pgt_addr = memblock::allocate_physical_memory(0, size, PAGE_SIZE, 0);
     let mut pgt_pages = PgtMemory {
@@ -100,7 +99,7 @@ pub fn paging_kernel_text_map(physical: PhysicalAddr, size: usize) {
     for addr in (physical..physical + size).step_by(PAGE_SIZE) {
         unsafe {
             arch_mm::init::add_page_mapping(
-                &mut || allocate_page_table(&mut *addr_of_mut!(PGT_MEMORY)),
+                &mut || allocate_page_table(&mut *(&raw mut PGT_MEMORY)),
                 p2l_before_init,
                 addr - physical + arch_mm::VMKERNEL_ENTRY_ADDRESS,
                 addr,

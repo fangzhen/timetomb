@@ -1,6 +1,6 @@
 [package]
 authors = ["Fang Zhen <fangzhen@live.com>"]
-edition = "2021"
+edition = "2024"
 readme = "README.md"
 name = "timetomb"
 version = "0.1.0"

@@ -8,7 +8,6 @@ use crate::arch::x86_64::mm as arch_mm;
 use arch::x86_64::mm::init::TSS_WITH_IO_MAP;
 use arch::x86_64::process;
 use core::panic::PanicInfo;
-use core::ptr::addr_of;
 use kernel::mm::physical;
 use kernel::mm::slab;
 use timetomb::arch::x86_64::mm as share_mm;
@@ -25,7 +24,7 @@ pub mod kernel;
 pub mod library;
 
 static mut LOGGER: Logger = Logger { writer: None };
-extern "C" {
+unsafe extern "C" {
     static _setup_header: u8;
 }
 pub static mut SETUP_HEADER: *const SetupHeader =
@@ -35,7 +34,7 @@ pub static mut SETUP_HEADER: *const SetupHeader =
 fn setup_logger() {
     unsafe {
         LOGGER.writer = Some(&mut (uart::UartOutput {}) as *mut uart::UartOutput);
-        log::set_logger(&*addr_of!(LOGGER))
+        log::set_logger(&*(&raw const LOGGER))
             .map(|()| log::set_max_level(log::LevelFilter::Info))
             .ok();
     }
@@ -46,11 +45,13 @@ fn setup_logger() {
 fn panic(_info: &PanicInfo) -> ! {
     loop {}
 }
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn main() -> ! {
     //TODO(fangzhen) make this global?
     let setup_header: &SetupHeader = unsafe { SETUP_HEADER.as_ref().unwrap() };
-    uart::init_serial_port(Some(unsafe { &mut TSS_WITH_IO_MAP.io_permission_map }));
+    uart::init_serial_port(Some(unsafe {
+        &mut *(&raw mut TSS_WITH_IO_MAP.io_permission_map)
+    }));
     setup_logger();
     arch_mm::init_setup(setup_header);
     log::info!("Kernel taking over!");
@@ -71,8 +72,8 @@ pub extern "C" fn main() -> ! {
     memblock::print_memblocks();
 
     // memory management init
-    physical::init_page_allocator(unsafe { &*addr_of!(memblock::ALL_MEMBLOCKS) }, unsafe {
-        &*addr_of!(memblock::USED_MEMBLOCKS)
+    physical::init_page_allocator(unsafe { &*(&raw const memblock::ALL_MEMBLOCKS) }, unsafe {
+        &*(&raw const memblock::USED_MEMBLOCKS)
     });
     physical::MEM_ZONE.print_buddy_status();
     slab::init_slab();

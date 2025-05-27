@@ -29,8 +29,8 @@ pub static mut TSS_WITH_IO_MAP: super::TssWithIoMap = super::TssWithIoMap {
 
 pub fn setup_gdt() {
     unsafe {
-        let tss_base = &TSS_WITH_IO_MAP.tss as *const super::Tss as u64;
-        let io_map_base = &TSS_WITH_IO_MAP.io_permission_map as *const _ as u64;
+        let tss_base = (&raw const TSS_WITH_IO_MAP.tss) as *const super::Tss as u64;
+        let io_map_base = (&raw const TSS_WITH_IO_MAP.io_permission_map) as *const _ as u64;
         TSS_WITH_IO_MAP.tss.iopb = (io_map_base - tss_base) as u16;
         GDT_ENTRIES = [
             //null

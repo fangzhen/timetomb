@@ -6,6 +6,7 @@ pub struct SyncOnceUnsafeCell<T> {
 
 unsafe impl<T: Sync> Sync for SyncOnceUnsafeCell<T> {}
 
+// TODO: It's actually unsafe.
 impl<T> SyncOnceUnsafeCell<T> {
     pub const fn new() -> SyncOnceUnsafeCell<T> {
         SyncOnceUnsafeCell {

@@ -1,5 +1,4 @@
 use core::cmp::min;
-use core::ptr::addr_of_mut;
 
 use log::info;
 
@@ -50,18 +49,18 @@ fn align_up(start: usize, align: usize) -> usize {
 fn find_free_block(size: usize, align: usize) -> PhysicalAddr {
     let a_cnt = unsafe { ALL_MEMBLOCKS.cnt };
     let u_cnt = unsafe { USED_MEMBLOCKS.cnt };
-    let a_regions = unsafe { &ALL_MEMBLOCKS.regions };
-    let u_regions = unsafe { &USED_MEMBLOCKS.regions };
+    let a_regions = unsafe { &raw const ALL_MEMBLOCKS.regions };
+    let u_regions = unsafe { &raw const USED_MEMBLOCKS.regions };
     let mut ia = 0;
     let mut iu = 0;
     let mut ur_start;
     let mut ur_end;
     while ia < a_cnt {
-        let ar = &a_regions[ia];
+        let ar = unsafe { &(*a_regions)[ia] };
         let mut start_c = align_up(ar.start, align);
         while {
             if iu < u_cnt {
-                let ur = &u_regions[iu];
+                let ur = unsafe { &(*u_regions)[iu] };
                 ur_start = ur.start;
                 ur_end = ur_start + ur.size;
             } else {
@@ -100,7 +99,7 @@ pub fn allocate_physical_memory(
         start = find_free_block(size, align);
     }
     add_range(
-        unsafe { &mut *addr_of_mut!(USED_MEMBLOCKS) },
+        unsafe { &mut *(&raw mut USED_MEMBLOCKS) },
         start,
         size,
         flag,
@@ -110,19 +109,14 @@ pub fn allocate_physical_memory(
 
 pub fn add_used_memory(start: usize, size: usize, flag: u32) {
     add_range(
-        unsafe { &mut *addr_of_mut!(USED_MEMBLOCKS) },
+        unsafe { &mut *(&raw mut USED_MEMBLOCKS) },
         start,
         size,
         flag,
     );
 }
 pub fn add_memory(start: usize, size: usize, flag: u32) {
-    return add_range(
-        unsafe { &mut *addr_of_mut!(ALL_MEMBLOCKS) },
-        start,
-        size,
-        flag,
-    );
+    return add_range(unsafe { &mut *(&raw mut ALL_MEMBLOCKS) }, start, size, flag);
 }
 fn add_range(target: &mut MemblockType, start: usize, size: usize, flag: u32) {
     let end = start + size;

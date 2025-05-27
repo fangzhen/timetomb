@@ -6,7 +6,6 @@ use crate::arch::uefi;
 use crate::arch::uefi::spec;
 use crate::arch::x86_64::mm as boot_arch_mm;
 use core::arch::asm;
-use core::ptr::addr_of;
 use timetomb::arch::x86_64::mm as arch_mm;
 use timetomb::driver::uart;
 use timetomb::kernel::logger::Logger;
@@ -29,7 +28,7 @@ pub static mut SETUP_HEADER: SetupHeader = SetupHeader {
     rsdp_addr: 0,
 };
 
-extern "C" {
+unsafe extern "C" {
     static __vmkernel_start: u8;
     static __vmkernel_end: u8;
 }
@@ -37,13 +36,13 @@ extern "C" {
 fn setup_logger() {
     unsafe {
         LOGGER.writer = Some(&mut (uart::UartOutput {}) as *mut uart::UartOutput);
-        log::set_logger(&*addr_of!(LOGGER))
+        log::set_logger(&*(&raw const LOGGER))
             .map(|()| log::set_max_level(LevelFilter::Info))
             .ok();
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "efiapi" fn efi_main(hdr: spec::Handle, system: *const spec::SystemTable) {
     unsafe {
         uefi::UEFI_SYSTEM_TAB = system;

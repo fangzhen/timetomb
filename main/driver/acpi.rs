@@ -20,9 +20,9 @@ impl AcpiHandler for MemblockAcpiHandler {
             size
         );
         let va = p2l(physical_address);
-        paging::map_region(physical_address, size, CR3_ADDR);
-        let object = NonNull::new_unchecked(va as *mut T);
-        return PhysicalMapping::new(physical_address, object, size, size, *self);
+        unsafe { paging::map_region(physical_address, size, CR3_ADDR) };
+        let object = unsafe { NonNull::new_unchecked(va as *mut T) };
+        return unsafe { PhysicalMapping::new(physical_address, object, size, size, *self) };
     }
 
     fn unmap_physical_region<T>(_region: &acpi::PhysicalMapping<Self, T>) {

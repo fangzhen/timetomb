@@ -1,6 +1,5 @@
 use crate::arch::x86_64::syscall;
 use core::arch::asm;
-use core::ptr::addr_of;
 use timetomb::kernel::mm::memblock;
 use timetomb::kernel::mm::PAGE_SIZE;
 
@@ -20,8 +19,8 @@ pub fn to_userspace_ret() {
         echo as *const () as usize,
         user_stack_addr,
         &user_stack_addr as *const usize as usize,
-        addr_of!( memblock::ALL_MEMBLOCKS) as usize,
-        //unsafe{addr_of!( memblock::ALL_MEMBLOCKS) as usize},
+        (&raw const memblock::ALL_MEMBLOCKS) as usize,
+        //unsafe{&raw const ( memblock::ALL_MEMBLOCKS) as usize},
         0
         //&uefi_map[0] as *const _ as usize
     );
