@@ -54,7 +54,8 @@ fn main() {
                 SETUP_HEADER_OFFSET
             ),
         ]
-        .join("\n"),
+        .join("\n")
+            + "\n",
     )
     .unwrap();
 
