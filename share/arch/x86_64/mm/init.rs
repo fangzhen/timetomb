@@ -1,5 +1,5 @@
 use crate::arch::x86_64::mm as arch_mm;
-use crate::kernel::mm::{LinearAddr, PhysicalAddr, PAGE_SIZE};
+use crate::kernel::mm::{LinearAddr, PAGE_SIZE, PhysicalAddr};
 
 pub fn memzero(addr: usize, size: usize) {
     for i in 0..size {

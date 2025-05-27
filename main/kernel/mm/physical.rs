@@ -3,12 +3,12 @@ use core::{
     cmp::min,
     slice::{from_raw_parts, from_raw_parts_mut},
 };
-use intrusive_collections::{intrusive_adapter, LinkedList, LinkedListLink};
+use intrusive_collections::{LinkedList, LinkedListLink, intrusive_adapter};
 use timetomb::{
     arch::x86_64::mm::{l2p, p2l},
     kernel::mm::{
+        LinearAddr, PAGE_SIZE, PhysicalAddr,
         memblock::{self, MemblockType},
-        LinearAddr, PhysicalAddr, PAGE_SIZE,
     },
 };
 

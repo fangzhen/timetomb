@@ -1,6 +1,6 @@
 use log::*;
 use timetomb::arch::x86_64::mm as arch_mm;
-use timetomb::kernel::mm::{memblock, LinearAddr, PhysicalAddr, PAGE_SIZE};
+use timetomb::kernel::mm::{LinearAddr, PAGE_SIZE, PhysicalAddr, memblock};
 
 #[derive(Debug)]
 pub struct PgtMemory {

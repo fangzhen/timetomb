@@ -1,8 +1,8 @@
 pub mod init;
 
 use crate::arch::x86_64::mm as arch_mm;
-use timetomb::arch::x86_64::mm as share_mm;
 use timetomb::arch::x86_64::SetupHeader;
+use timetomb::arch::x86_64::mm as share_mm;
 
 pub static mut CR3_ADDR: usize = 0;
 

@@ -10,12 +10,12 @@ use arch::x86_64::process;
 use core::panic::PanicInfo;
 use kernel::mm::physical;
 use kernel::mm::slab;
-use timetomb::arch::x86_64::mm as share_mm;
 use timetomb::arch::x86_64::SetupHeader;
+use timetomb::arch::x86_64::mm as share_mm;
 use timetomb::driver::uart;
 use timetomb::kernel::logger::Logger;
-use timetomb::kernel::mm::memblock;
 use timetomb::kernel::mm::KERNEL_STACK_SIZE;
+use timetomb::kernel::mm::memblock;
 
 pub mod arch;
 pub mod driver;

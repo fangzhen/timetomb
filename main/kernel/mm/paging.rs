@@ -1,6 +1,6 @@
 use timetomb::arch::x86_64::mm::init::add_page_mapping as add_page_mapping_general;
 use timetomb::arch::x86_64::mm::p2l;
-use timetomb::kernel::mm::{PhysicalAddr, PAGE_SIZE};
+use timetomb::kernel::mm::{PAGE_SIZE, PhysicalAddr};
 
 use crate::library::bitops;
 
