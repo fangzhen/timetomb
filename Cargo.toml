@@ -12,18 +12,17 @@ intrusive-collections = {version = "0.9", default-features = false}
 
 [[bin]]
 name = "boot"
-path = "boot/main.rs"
 test = false
 bench = false
 
 [[bin]]
 name = "vmkernel"
-path = "main/main.rs"
+path = "src/main.rs"
 test = false
 bench = false
 
 [lib]
-path = "share/lib.rs"
+path = "src/share/lib.rs"
 
 [profile.release]
 codegen-units = 1 # better optimizations

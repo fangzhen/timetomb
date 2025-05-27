@@ -23,8 +23,8 @@ fn main() {
     )
     .unwrap();
 
-    let src_path = Path::new(&out_dir).join("main/head.rs.tpl");
-    let dest_path = Path::new(&out_dir).join("main/head.rs");
+    let src_path = Path::new(&out_dir).join("src/head.rs.tpl");
+    let dest_path = Path::new(&out_dir).join("src/head.rs");
     let tpl = fs::read_to_string(&src_path).unwrap();
     fs::write(
         &dest_path,
@@ -36,7 +36,7 @@ fn main() {
     )
     .unwrap();
 
-    let ffi_shared_path = Path::new(&out_dir).join("share/arch/x86_64/ffi_shared.rs");
+    let ffi_shared_path = Path::new(&out_dir).join("src/share/arch/x86_64/ffi_shared.rs");
     println!("{}", ffi_shared_path.display());
     fs::write(
         &&ffi_shared_path,
