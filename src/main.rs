@@ -2,9 +2,13 @@
 #![no_main]
 #![feature(abi_x86_interrupt)]
 #![feature(sync_unsafe_cell)]
+
+extern crate alloc;
 use crate::arch::x86_64::instruction_wrappers;
 use crate::arch::x86_64::interrupt;
 use crate::arch::x86_64::mm as arch_mm;
+use crate::kernel::process::ProcessApi;
+use alloc::string::String;
 use arch::x86_64::mm::init::TSS_WITH_IO_MAP;
 use arch::x86_64::process;
 use core::panic::PanicInfo;
@@ -88,7 +92,13 @@ pub extern "C" fn main() -> ! {
 
     interrupt::apic::init_apic(setup_header.rsdp_addr);
 
-    process::to_userspace_ret();
+    // TODO: this actually use of syscall/sysret. refoctor later.
+    //process::to_userspace_ret();
+
+    // Start the process management system
+    crate::kernel::process::init();
+    test_process_management();
+
     process::idle();
 }
 
@@ -104,4 +114,43 @@ fn test_mm() {
     physical::free_pages(page.unwrap());
 
     slab::test_slab();
+}
+
+fn test_process_management() {
+    log::info!("Testing process management system");
+
+    match ProcessApi::create_process(
+        test_process_function,
+        Some(String::from("test_process")),
+        false,
+    ) {
+        Ok(pid) => {
+            log::info!("Created test process with PID: {:?}", pid);
+
+            if let Some(info) = ProcessApi::get_process_info(pid) {
+                log::info!("Process info: {}", info);
+            }
+        }
+        Err(e) => {
+            log::error!("Failed to create test process: {}", e);
+        }
+    }
+
+    log::info!("Testing scheduler...");
+    ProcessApi::schedule_next();
+}
+
+fn test_process_function() {
+    log::info!("Test process is running!");
+
+    for i in 0..10 {
+        log::info!("Test process iteration: {}", i);
+
+        // Yield CPU every few iterations
+        if i % 3 == 0 {
+            ProcessApi::yield_current();
+        }
+    }
+
+    log::info!("Test process finished");
 }

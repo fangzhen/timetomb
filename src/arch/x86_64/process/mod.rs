@@ -1,7 +1,22 @@
+//! x86_64 specific process management
+//!
+//! This module provides x86_64 architecture specific implementations
+//! for process management, including context switching.
+
+pub mod context_switch_asm;
+
+pub fn timer_tick() {
+    // TODO: Implement timer tick handling
+    // This should handle process scheduling on timer interrupts
+}
+
 use crate::arch::x86_64::syscall;
 use core::arch::asm;
 use timetomb::kernel::mm::PAGE_SIZE;
 use timetomb::kernel::mm::memblock;
+
+/// Initialize x86_64 process management
+pub fn init() {}
 
 pub fn idle() -> ! {
     loop {

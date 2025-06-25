@@ -42,6 +42,9 @@ impl IdtEntry {
     }
 }
 
+use core::fmt;
+
+#[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct StackFrame {
     rip: u64,
@@ -49,6 +52,16 @@ pub struct StackFrame {
     rflags: u64,
     rsp: u64,
     ss: u64,
+}
+
+impl fmt::Display for StackFrame {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "StackFrame {{\n  ss: {:#x},\n  rsp: {:#x},\n  rflags: {:#x},\n  cs: {:#x},\n  rip: {:#x}\n}}",
+            self.ss, self.rsp, self.rflags, self.cs, self.rip
+        )
+    }
 }
 
 pub fn setup_idt() {
@@ -100,13 +113,17 @@ pub extern "x86-interrupt" fn handle_gp(_stack: StackFrame, error_code: u64) {
     panic!();
 }
 
-pub extern "x86-interrupt" fn handle_pf(_stack: StackFrame, error_code: u64) {
-    info!("Page Fault exception with error code. {:#x}", error_code);
+pub extern "x86-interrupt" fn handle_pf(stack: StackFrame, error_code: u64) {
+    info!(
+        "Page Fault exception with error code: {:#x}, stack_frame: {}",
+        error_code, stack
+    );
     panic!();
 }
 
 pub extern "x86-interrupt" fn handle_timer(_stack: StackFrame) {
-    //    info!("Timer");
+    // Call the process scheduler for preemptive multitasking
+    crate::arch::x86_64::process::timer_tick();
     apic::send_eoi();
 }
 
