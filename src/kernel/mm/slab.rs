@@ -231,7 +231,12 @@ fn size_to_slab_index(size: usize) -> usize {
     if size == 0 {
         return 0;
     }
-    return bitops::ffs(bitops::power_of_two_ceil(size)) - 3;
+    let pow = bitops::ffs(bitops::power_of_two_ceil(size));
+    if pow <= 3 {
+        return 0;
+    } else {
+        return pow - 3;
+    }
 }
 pub fn kmalloc(size: usize) -> usize {
     if size <= KMALLOC_SLAB_MAX {
@@ -283,6 +288,18 @@ pub fn test_slab() {
 
     log::info!("test kmalloc");
     let a = kmalloc(7);
+    log::info!("Allocated objects: {:#x}", a);
+    kfree(a);
+
+    let a = kmalloc(4);
+    log::info!("Allocated objects: {:#x}", a);
+    kfree(a);
+
+    let a = kmalloc(0);
+    log::info!("Allocated objects: {:#x}", a);
+    kfree(a);
+
+    let a = kmalloc(1);
     log::info!("Allocated objects: {:#x}", a);
     kfree(a);
 
