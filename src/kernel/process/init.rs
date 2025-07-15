@@ -10,36 +10,38 @@ use alloc::string::String;
 pub fn init() {
     ProcessManager::init();
     arch_process::init();
-    //create_idle_process().expect("Failed to create idle process");
+    create_idle_process().expect("Failed to create idle process");
     log::info!("Process management subsystem initialized");
 }
 
 /// Create the idle process that runs when no other processes are ready
 pub fn create_idle_process() -> Result<(), &'static str> {
-    let _idle_pid = ProcessApi::create_process(idle_process, Some(String::from("idle")), false)?;
-    log::info!("Idle process created with PID: {:?}", _idle_pid);
+    let idle_pid =
+        ProcessApi::create_process(idle_process as usize, Some(String::from("idle")), false)?;
+    ProcessApi::set_current_process(Some(idle_pid));
+    log::info!("Idle process created with PID: {:?}", idle_pid);
 
     Ok(())
 }
 
 /// The idle process function
 /// This process runs when no other processes are ready to run
-fn idle_process() {
+pub fn idle_process() -> ! {
     loop {
         // Halt the CPU until the next interrupt
         // This saves power when the system is idle
         unsafe {
             core::arch::asm!("hlt", options(nomem, nostack));
+            // Yield to allow other processes to run
+            ProcessApi::yield_current();
         }
-
-        // Yield to allow other processes to run
-        ProcessApi::yield_current();
     }
 }
 
 /// Start the first user process (init process)
 pub fn start_init_process() -> Result<(), &'static str> {
-    let init_pid = ProcessApi::create_process(init_process, Some(String::from("init")), true)?;
+    let init_pid =
+        ProcessApi::create_process(init_process as usize, Some(String::from("init")), true)?;
     log::info!("Init process created with PID: {:?}", init_pid);
 
     // Start scheduling
@@ -55,7 +57,7 @@ fn init_process() {
     // Create some test processes
     for i in 1..=3 {
         match ProcessApi::create_process(
-            test_process,
+            test_process as usize,
             Some(alloc::format!("test_process_{}", i)),
             true,
         ) {

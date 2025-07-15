@@ -9,17 +9,28 @@ use crate::{
 };
 use core::arch::naked_asm;
 
-/// Save current context without switching
+/// Save current context, restore next context and switch to it.
 ///
 /// This function saves the current CPU state to the provided context structure.
-/// Unlike switch_context, this function returns to the caller.
+/// This function loads the CPU state from the provided context and jumps to it.
 ///
 /// # Safety
 /// This function is unsafe because it directly accesses memory through a raw pointer.
 /// The caller must ensure that `context` points to valid memory.
+/// This function is unsafe because it directly manipulates CPU registers and jumps
+/// to arbitrary code. The caller must ensure that:
+/// - The context contains valid register values
+/// - The RIP points to valid executable code
+/// - The RSP points to valid stack memory
 #[unsafe(naked)]
-pub unsafe extern "C" fn save_context(context: *mut ProcessContext) {
+pub unsafe extern "C" fn save_restore_context(
+    current_context: *mut ProcessContext,
+    next_context: *const ProcessContext,
+) {
     naked_asm!(
+        // Skip saving if current_context is null
+        "test rdi, rdi",
+        "jz 3f",
         // Save general purpose registers
         "mov [rdi + 0x00], rax",
         "mov [rdi + 0x08], rbx",
@@ -37,8 +48,8 @@ pub unsafe extern "C" fn save_context(context: *mut ProcessContext) {
         "mov [rdi + 0x68], r13",
         "mov [rdi + 0x70], r14",
         "mov [rdi + 0x78], r15",
-        // Save return address as RIP
-        "mov rax, [rsp]",
+        // Save lable 2: as RIP
+        "lea rax, [2f]",
         "mov [rdi + 0x80], rax", // Save RIP
         // Save RFLAGS
         "pushfq",
@@ -60,61 +71,51 @@ pub unsafe extern "C" fn save_context(context: *mut ProcessContext) {
         // Save CR3
         "mov rax, cr3",
         "mov [rdi + 0xc0], rax",
-        // Return to caller
-        "ret"
-    );
-}
-
-/// Restore context and jump to it
-///
-/// This function loads the CPU state from the provided context and jumps to it.
-/// This function does not return.
-///
-/// # Safety
-/// This function is unsafe because it directly manipulates CPU registers and jumps
-/// to arbitrary code. The caller must ensure that:
-/// - The context contains valid register values
-/// - The RIP points to valid executable code
-/// - The RSP points to valid stack memory
-#[unsafe(naked)]
-pub unsafe extern "C" fn restore_context(context: *const ProcessContext) {
-    naked_asm!(
+        //
+        // RESTORE
         // Load CR3 first (page table)
-        "mov rax, [rdi + 0xc0]", // Load CR3
+        "3:",
+        "mov rax, [rsi + 0xc0]", // Load CR3
         "mov cr3, rax",
         // Load segment registers
-        "mov rax, [rdi + 0xa0]",
+        "mov rax, [rsi + 0x90]",
+        "mov cs, ax",
+        "mov rax, [rsi + 0x98]",
+        "mov ss, ax",
+        "mov rax, [rsi + 0xa0]",
         "mov ds, ax",
-        "mov rax, [rdi + 0xa8]",
+        "mov rax, [rsi + 0xa8]",
         "mov es, ax",
-        "mov rax, [rdi + 0xb0]",
+        "mov rax, [rsi + 0xb0]",
         "mov fs, ax",
-        "mov rax, [rdi + 0xb8]",
+        "mov rax, [rsi + 0xb8]",
         "mov gs, ax",
         // Load RFLAGS
-        "mov rax, [rdi + 0x88]",
+        "mov rax, [rsi + 0x88]",
         "push rax",
         "popfq",
         // Load general purpose registers
-        "mov rax, [rdi + 0x00]",
-        "mov rbx, [rdi + 0x08]",
-        "mov rcx, [rdi + 0x10]",
-        "mov rdx, [rdi + 0x18]",
-        "mov rsi, [rdi + 0x20]",
-        "mov rbp, [rdi + 0x30]",
-        "mov rsp, [rdi + 0x38]",
-        "mov r8,  [rdi + 0x40]",
-        "mov r9,  [rdi + 0x48]",
-        "mov r10, [rdi + 0x50]",
-        "mov r11, [rdi + 0x58]",
-        "mov r12, [rdi + 0x60]",
-        "mov r13, [rdi + 0x68]",
-        "mov r14, [rdi + 0x70]",
-        "mov r15, [rdi + 0x78]",
+        "mov rax, [rsi + 0x00]",
+        "mov rbx, [rsi + 0x08]",
+        "mov rcx, [rsi + 0x10]",
+        "mov rdx, [rsi + 0x18]",
+        "mov rdi, [rsi + 0x28]",
+        "mov rbp, [rsi + 0x30]",
+        "mov rsp, [rsi + 0x38]",
+        "mov r8,  [rsi + 0x40]",
+        "mov r9,  [rsi + 0x48]",
+        "mov r10, [rsi + 0x50]",
+        "mov r11, [rsi + 0x58]",
+        "mov r12, [rsi + 0x60]",
+        "mov r13, [rsi + 0x68]",
+        "mov r14, [rsi + 0x70]",
+        "mov r15, [rsi + 0x78]",
         // Load RIP and jump
-        "mov rax, [rdi + 0x80]", // Load RIP
-        "mov rdi, [rdi + 0x28]", // Load RDI last
-        "jmp rax"                // Jump to RIP
+        "mov rax, [rsi + 0x80]", // Load RIP
+        "mov rsi, [rsi + 0x20]", // Load RSI last
+        "jmp rax",               // Jump to RIP
+        "2:",
+        "ret"
     );
 }
 
@@ -210,8 +211,7 @@ unsafe extern "C" fn process_entry_wrapper() {
         "and rsp, -16", //align rsp to 16 bytes
         "call rbx",
         // If the process returns, we should terminate it
-        // For now, just halt
-        "hlt",
+        "call process_end",
         "2: jmp 2b" // Infinite loop as fallback
     );
 }
@@ -222,4 +222,12 @@ pub fn schedule_end() {
     if pm.is_locked() {
         unsafe { pm.force_unlock() };
     }
+}
+
+#[unsafe(no_mangle)]
+pub fn process_end() {
+    let mut pm = ProcessManager::get().lock();
+    let pid = pm.current_process().unwrap();
+    let _ = pm.terminate_process(pid);
+    //TODO cleanup: free memory etc.
 }

@@ -18,9 +18,6 @@ pub trait Scheduler {
     /// Select the next process to run
     fn schedule(&mut self) -> Option<ProcessId>;
 
-    /// Notify scheduler that current process's time slice expired
-    fn time_slice_expired(&mut self, current_pid: ProcessId);
-
     /// Get the number of processes in the scheduler
     fn process_count(&self) -> usize;
 
@@ -38,8 +35,6 @@ pub trait Scheduler {
 pub struct RoundRobinScheduler {
     /// Queue of ready processes
     ready_queue: VecDeque<ProcessId>,
-    /// Currently running process (if any)
-    current_process: Option<ProcessId>,
     /// Default time slice for each process (in timer ticks)
     default_time_slice: u32,
 }
@@ -49,7 +44,6 @@ impl RoundRobinScheduler {
     pub fn new() -> Self {
         Self {
             ready_queue: VecDeque::new(),
-            current_process: None,
             default_time_slice: 10, // Default 10 timer ticks
         }
     }
@@ -58,7 +52,6 @@ impl RoundRobinScheduler {
     pub fn with_time_slice(time_slice: u32) -> Self {
         Self {
             ready_queue: VecDeque::new(),
-            current_process: None,
             default_time_slice: time_slice,
         }
     }
@@ -73,11 +66,6 @@ impl RoundRobinScheduler {
         self.default_time_slice
     }
 
-    /// Get the current running process
-    pub fn current_process(&self) -> Option<ProcessId> {
-        self.current_process
-    }
-
     /// Get a reference to the ready queue (for debugging)
     pub fn ready_queue(&self) -> &VecDeque<ProcessId> {
         &self.ready_queue
@@ -86,7 +74,6 @@ impl RoundRobinScheduler {
 
 impl Scheduler for RoundRobinScheduler {
     fn add_process(&mut self, pid: ProcessId) {
-        // Don't add if already in queue
         if !self.ready_queue.contains(&pid) {
             self.ready_queue.push_back(pid);
         }
@@ -95,39 +82,22 @@ impl Scheduler for RoundRobinScheduler {
     fn remove_process(&mut self, pid: ProcessId) {
         // Remove from ready queue
         self.ready_queue.retain(|&p| p != pid);
-
-        // Clear current process if it's the one being removed
-        if self.current_process == Some(pid) {
-            self.current_process = None;
-        }
     }
 
     fn schedule(&mut self) -> Option<ProcessId> {
-        // If there's a current process, it means we're doing a context switch
         // The current process should already be back in the ready queue if it's still runnable
 
         // Get the next process from the front of the queue
         if let Some(next_pid) = self.ready_queue.pop_front() {
-            self.current_process = Some(next_pid);
             Some(next_pid)
         } else {
-            self.current_process = None;
             None
-        }
-    }
-
-    fn time_slice_expired(&mut self, current_pid: ProcessId) {
-        // Move current process to back of queue (round-robin)
-        if self.current_process == Some(current_pid) {
-            self.ready_queue.push_back(current_pid);
-            self.current_process = None;
         }
     }
 
     fn process_count(&self) -> usize {
         let queue_count = self.ready_queue.len();
-        let current_count = if self.current_process.is_some() { 1 } else { 0 };
-        queue_count + current_count
+        queue_count + 1
     }
 }
 
@@ -135,9 +105,8 @@ impl fmt::Display for RoundRobinScheduler {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "RoundRobinScheduler[Ready: {}, Current: {:?}, TimeSlice: {}]",
+            "RoundRobinScheduler[Ready: {}, TimeSlice: {}]",
             self.ready_queue.len(),
-            self.current_process,
             self.default_time_slice
         )
     }

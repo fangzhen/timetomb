@@ -1,3 +1,5 @@
+use crate::kernel::process::context::save_restore_context;
+
 use super::{ProcessControlBlock, ProcessId, ProcessState};
 use super::{RoundRobinScheduler, Scheduler};
 use alloc::collections::BTreeMap;
@@ -60,8 +62,7 @@ impl ProcessManager {
         self.next_pid.0 += 1;
 
         let mut pcb = ProcessControlBlock::new(pid, entry_point, stack_size)?;
-        // New processes start in New state and will be moved to Ready when first scheduled
-        pcb.set_state(ProcessState::New);
+        pcb.set_state(ProcessState::Ready);
 
         self.processes.insert(pid, pcb);
         self.scheduler.add_process(pid);
@@ -84,8 +85,7 @@ impl ProcessManager {
         self.next_pid.0 += 1;
 
         let mut pcb = ProcessControlBlock::new_kernel(pid, entry_point, stack_size)?;
-        // New processes start in New state and will be moved to Ready when first scheduled
-        pcb.set_state(ProcessState::New);
+        pcb.set_state(ProcessState::Ready);
 
         self.processes.insert(pid, pcb);
         self.scheduler.add_process(pid);
@@ -123,57 +123,55 @@ impl ProcessManager {
         let current = self.current_process();
 
         if let Some(current_pid) = current {
-            if let Some(current_pcb) = self.get_process_mut(current_pid) {
-                if current_pcb.state() == ProcessState::Running {
-                    current_pcb.set_state(new_state);
-                }
-                let saved_context = crate::kernel::process::ProcessContext::save_current();
-                *current_pcb.context_mut() = saved_context;
+            if new_state == ProcessState::Ready {
+                self.scheduler.add_process(current_pid);
+            }
+            let current_pcb = self.get_process_mut(current_pid).unwrap();
+            if current_pcb.state() == ProcessState::Running {
+                current_pcb.set_state(new_state);
             }
         }
-
         // Get next process from scheduler and switch to it
-        if let Some(next_pid) = self.schedule() {
-            log::info!("Switching to process {:?}", next_pid);
-            self.set_current_process(Some(next_pid));
+        let next_pid = self.schedule().unwrap();
+        log::debug!("Switching to process {:?}", next_pid);
+        self.set_current_process(Some(next_pid));
 
-            let next_pcb = self.get_process_mut(next_pid).unwrap();
+        let next_pcb = self.get_process_mut(next_pid).unwrap();
 
-            // Handle first-time execution vs. resuming
-            match next_pcb.state() {
-                ProcessState::New => {
-                    log::info!("Starting new process {:?} for the first time", next_pid);
-                    next_pcb.set_state(ProcessState::Running);
-                    // For new processes, the context is already set up by init_process_context
-                    // to simulate being resumed from a context switch
-                }
-                ProcessState::Ready => {
-                    log::info!("Resuming process {:?}", next_pid);
-                    next_pcb.set_state(ProcessState::Running);
-                    // For ready processes, we're resuming from where they left off
-                }
-                _ => {
-                    log::warn!(
-                        "Attempting to schedule process {:?} in state {:?}",
-                        next_pid,
-                        next_pcb.state()
-                    );
-                    next_pcb.set_state(ProcessState::Running);
-                }
+        match next_pcb.state() {
+            ProcessState::Ready => {
+                log::debug!("Resuming process {:?}", next_pid);
+                next_pcb.set_state(ProcessState::Running);
+                // For ready processes, we're resuming from where they left off
             }
-
-            let next_context = next_pcb.context().clone();
-
-            // This call will not return - it jumps directly to the next process
-            unsafe {
-                next_context.restore();
+            _ => {
+                log::warn!(
+                    "Attempting to schedule process {:?} in state {:?}",
+                    next_pid,
+                    next_pcb.state()
+                );
+                next_pcb.set_state(ProcessState::Running);
             }
-
-            // This line should never be reached
-            ProcessSwitchResult::Success
-        } else {
-            ProcessSwitchResult::NoProcess
         }
+
+        let next_context = next_pcb.context().clone();
+
+        // This call will not return - it jumps directly to the next process
+        let current_context;
+        if current.is_none() {
+            current_context = None;
+        } else {
+            current_context = Some(
+                self.get_process_mut(current.unwrap())
+                    .unwrap()
+                    .context_mut(),
+            );
+        }
+        unsafe {
+            save_restore_context(current_context, &next_context);
+        }
+
+        ProcessSwitchResult::Success
     }
 
     /// Handle timer interrupt for preemptive scheduling
@@ -218,6 +216,7 @@ impl ProcessManager {
             if self.current_process == Some(pid) {
                 self.current_process = None;
             }
+            self.schedule_next(ProcessState::Terminated);
 
             Ok(())
         } else {

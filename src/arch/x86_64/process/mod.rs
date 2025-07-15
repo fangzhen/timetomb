@@ -11,18 +11,11 @@ pub fn timer_tick() {
 }
 
 use crate::arch::x86_64::syscall;
-use core::arch::asm;
 use timetomb::kernel::mm::PAGE_SIZE;
 use timetomb::kernel::mm::memblock;
 
 /// Initialize x86_64 process management
 pub fn init() {}
-
-pub fn idle() -> ! {
-    loop {
-        unsafe { asm!("hlt") };
-    }
-}
 
 pub fn to_userspace_ret() {
     //TODO Only test for now. Migrate after process management.

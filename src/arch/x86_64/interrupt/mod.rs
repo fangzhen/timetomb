@@ -108,8 +108,11 @@ pub extern "x86-interrupt" fn handle_df(_stack: StackFrame, error_code: u64) {
     panic!();
 }
 
-pub extern "x86-interrupt" fn handle_gp(_stack: StackFrame, error_code: u64) {
-    info!("GP exception with error code. {:#x}", error_code);
+pub extern "x86-interrupt" fn handle_gp(stack: StackFrame, error_code: u64) {
+    info!(
+        "GP exception with error code. {:#x}, stack_frame: {}",
+        error_code, stack
+    );
     panic!();
 }
 

@@ -10,10 +10,10 @@ use crate::arch::x86_64::mm as arch_mm;
 use crate::kernel::process::ProcessApi;
 use alloc::string::String;
 use arch::x86_64::mm::init::TSS_WITH_IO_MAP;
-use arch::x86_64::process;
 use core::panic::PanicInfo;
 use kernel::mm::physical;
 use kernel::mm::slab;
+use kernel::process::init::idle_process;
 use timetomb::arch::x86_64::SetupHeader;
 use timetomb::arch::x86_64::mm as share_mm;
 use timetomb::driver::uart;
@@ -97,9 +97,10 @@ pub extern "C" fn main() -> ! {
 
     // Start the process management system
     crate::kernel::process::init();
-    test_process_management();
+    create_test_process();
 
-    process::idle();
+    log::info!("Let go...");
+    idle_process();
 }
 
 fn test_mm() {
@@ -116,11 +117,11 @@ fn test_mm() {
     slab::test_slab();
 }
 
-fn test_process_management() {
+fn create_test_process() {
     log::info!("Testing process management system");
 
     match ProcessApi::create_process(
-        test_process_function,
+        test_process_function as usize,
         Some(String::from("test_process")),
         false,
     ) {
@@ -136,15 +137,29 @@ fn test_process_management() {
         }
     }
 
-    log::info!("Testing scheduler...");
-    ProcessApi::schedule_next();
+    match ProcessApi::create_process(
+        test_process_function2 as usize,
+        Some(String::from("test_process_2")),
+        false,
+    ) {
+        Ok(pid) => {
+            log::info!("Created test process with PID: {:?}", pid);
+
+            if let Some(info) = ProcessApi::get_process_info(pid) {
+                log::info!("Process info: {}", info);
+            }
+        }
+        Err(e) => {
+            log::error!("Failed to create test process: {}", e);
+        }
+    }
 }
 
 fn test_process_function() {
-    log::info!("Test process is running!");
+    log::info!("[P1] Test process is running!");
 
     for i in 0..10 {
-        log::info!("Test process iteration: {}", i);
+        log::info!("[P1] Test process iteration: {}", i);
 
         // Yield CPU every few iterations
         if i % 3 == 0 {
@@ -152,5 +167,20 @@ fn test_process_function() {
         }
     }
 
-    log::info!("Test process finished");
+    log::info!("[P1] Test process finished");
+}
+
+fn test_process_function2() {
+    log::info!("[P2] Test process is running!");
+
+    for i in 0..10 {
+        log::info!("[P2] Test process iteration: {}", i);
+
+        // Yield CPU every few iterations
+        if i % 2 == 0 {
+            ProcessApi::yield_current();
+        }
+    }
+
+    log::info!("[P2] Test process finished");
 }

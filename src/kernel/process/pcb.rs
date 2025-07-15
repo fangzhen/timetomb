@@ -20,8 +20,6 @@ impl fmt::Display for ProcessId {
 /// Process states
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProcessState {
-    /// Process is newly created but not yet ready to run
-    New,
     /// Process is ready to run and waiting for CPU
     Ready,
     /// Process is currently running
@@ -35,7 +33,6 @@ pub enum ProcessState {
 impl fmt::Display for ProcessState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ProcessState::New => write!(f, "New"),
             ProcessState::Ready => write!(f, "Ready"),
             ProcessState::Running => write!(f, "Running"),
             ProcessState::Blocked => write!(f, "Blocked"),
@@ -161,7 +158,7 @@ impl ProcessControlBlock {
         Ok(Self {
             pid,
             parent_pid: None,
-            state: ProcessState::New,
+            state: ProcessState::Ready,
             priority: ProcessPriority::Normal,
             context,
             memory_info,

@@ -103,28 +103,6 @@ impl ProcessContext {
         ctx
     }
 
-    /// Save the current CPU context
-    /// This function captures the current state of CPU registers
-    pub fn save_current() -> Self {
-        let mut context = Self::default();
-        unsafe {
-            crate::arch::x86_64::process::context_switch_asm::save_context(
-                &mut context as *mut ProcessContext,
-            );
-        }
-        context
-    }
-
-    /// Restore this context to the CPU
-    /// This function loads the saved state back into CPU registers
-    pub unsafe fn restore(&self) {
-        unsafe {
-            crate::arch::x86_64::process::context_switch_asm::restore_context(
-                self as *const ProcessContext,
-            );
-        }
-    }
-
     /// Set the instruction pointer
     pub fn set_instruction_pointer(&mut self, rip: u64) {
         self.rip = rip;
@@ -153,6 +131,23 @@ impl ProcessContext {
     /// Get the page table base
     pub fn page_table(&self) -> u64 {
         self.cr3
+    }
+}
+/// Save the current CPU context
+/// Restore next context to the CPU
+pub unsafe fn save_restore_context(current: Option<&mut ProcessContext>, next: &ProcessContext) {
+    unsafe {
+        if current.is_none() {
+            crate::arch::x86_64::process::context_switch_asm::save_restore_context(
+                0 as *mut ProcessContext,
+                next as *const ProcessContext,
+            );
+        } else {
+            crate::arch::x86_64::process::context_switch_asm::save_restore_context(
+                current.unwrap() as *mut ProcessContext,
+                next as *const ProcessContext,
+            );
+        }
     }
 }
 

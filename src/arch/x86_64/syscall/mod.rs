@@ -1,4 +1,3 @@
-use super::process::idle;
 use crate::arch::x86_64::instruction_wrappers;
 use crate::arch::x86_64::mm as arch_mm;
 use core::arch::asm;
@@ -10,7 +9,6 @@ const MSR_IA32_EFER: u32 = 0xc0000080;
 
 fn syscall_entrypoint() {
     log::info!("syscall entrypoint");
-    idle();
 }
 
 pub fn syscall_init() {

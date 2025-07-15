@@ -38,14 +38,14 @@ pub struct ProcessApi;
 impl ProcessApi {
     /// Create a new process
     pub fn create_process(
-        entry_point: fn(),
+        entry_point: usize,
         name: Option<String>,
         user_mode: bool,
     ) -> Result<ProcessId, &'static str> {
         let pm = ProcessManager::get();
         let mut manager = pm.lock();
         let params = ProcessCreateParams {
-            entry_point: entry_point as *const fn() as usize,
+            entry_point: entry_point,
             stack_size: 0x8000, // 32KB stack for kernel threads
             name,
             parent_pid: None,
@@ -112,6 +112,13 @@ impl ProcessApi {
         }
 
         processes
+    }
+
+    /// Set current process ID. Only used by idle process.
+    pub fn set_current_process(pid: Option<ProcessId>) {
+        let pm = ProcessManager::get();
+        let mut manager = pm.lock();
+        manager.set_current_process(pid)
     }
 
     /// Get current process ID
