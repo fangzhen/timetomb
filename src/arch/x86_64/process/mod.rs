@@ -5,17 +5,17 @@
 
 pub mod context_switch_asm;
 
-pub fn timer_tick() {
-    // TODO: Implement timer tick handling
-    // This should handle process scheduling on timer interrupts
-}
-
 use crate::arch::x86_64::syscall;
+use crate::kernel::process::ProcessApi;
 use timetomb::kernel::mm::PAGE_SIZE;
 use timetomb::kernel::mm::memblock;
 
 /// Initialize x86_64 process management
 pub fn init() {}
+
+pub fn timer_tick() {
+    ProcessApi::schedule_next()
+}
 
 pub fn to_userspace_ret() {
     //TODO Only test for now. Migrate after process management.

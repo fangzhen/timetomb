@@ -125,9 +125,8 @@ pub extern "x86-interrupt" fn handle_pf(stack: StackFrame, error_code: u64) {
 }
 
 pub extern "x86-interrupt" fn handle_timer(_stack: StackFrame) {
-    // Call the process scheduler for preemptive multitasking
-    crate::arch::x86_64::process::timer_tick();
     apic::send_eoi();
+    crate::arch::x86_64::process::timer_tick();
 }
 
 pub extern "x86-interrupt" fn handle_uart(_stack: StackFrame) {

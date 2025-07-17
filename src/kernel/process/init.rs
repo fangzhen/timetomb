@@ -32,8 +32,6 @@ pub fn idle_process() -> ! {
         // This saves power when the system is idle
         unsafe {
             core::arch::asm!("hlt", options(nomem, nostack));
-            // Yield to allow other processes to run
-            ProcessApi::yield_current();
         }
     }
 }
