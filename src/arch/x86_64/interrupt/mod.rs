@@ -44,11 +44,11 @@ impl IdtEntry {
 
 #[repr(C)]
 pub struct StackFrame {
-    ss: u64,
-    rsp: u64,
-    rflags: u64,
-    cs: u64,
     rip: u64,
+    cs: u64,
+    rflags: u64,
+    rsp: u64,
+    ss: u64,
 }
 
 pub fn setup_idt() {
