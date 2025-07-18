@@ -53,15 +53,11 @@ impl ProcessManager {
     }
 
     /// Create a new user process
-    pub fn create_process(
-        &mut self,
-        entry_point: usize,
-        stack_size: usize,
-    ) -> Result<ProcessId, &'static str> {
+    pub fn create_process(&mut self, entry_point: usize) -> Result<ProcessId, &'static str> {
         let pid = self.next_pid;
         self.next_pid.0 += 1;
 
-        let mut pcb = ProcessControlBlock::new(pid, entry_point, stack_size)?;
+        let mut pcb = ProcessControlBlock::new(pid, entry_point)?;
         pcb.set_state(ProcessState::Ready);
 
         self.processes.insert(pid, pcb);
@@ -76,15 +72,11 @@ impl ProcessManager {
     }
 
     /// Create a new kernel process
-    pub fn create_kernel_process(
-        &mut self,
-        entry_point: usize,
-        stack_size: usize,
-    ) -> Result<ProcessId, &'static str> {
+    pub fn create_kernel_process(&mut self, entry_point: usize) -> Result<ProcessId, &'static str> {
         let pid = self.next_pid;
         self.next_pid.0 += 1;
 
-        let mut pcb = ProcessControlBlock::new_kernel(pid, entry_point, stack_size)?;
+        let mut pcb = ProcessControlBlock::new_kernel(pid, entry_point)?;
         pcb.set_state(ProcessState::Ready);
 
         self.processes.insert(pid, pcb);
@@ -140,7 +132,6 @@ impl ProcessManager {
 
         match next_pcb.state() {
             ProcessState::Ready => {
-                log::debug!("Resuming process {:?}", next_pid);
                 next_pcb.set_state(ProcessState::Running);
                 // For ready processes, we're resuming from where they left off
             }
@@ -169,24 +160,6 @@ impl ProcessManager {
         }
         unsafe {
             save_restore_context(current_context, &next_context);
-        }
-
-        ProcessSwitchResult::Success
-    }
-
-    /// Handle timer interrupt for preemptive scheduling
-    pub fn timer_interrupt(&mut self) -> ProcessSwitchResult {
-        if let Some(current_pid) = self.current_process() {
-            if let Some(current_pcb) = self.get_process_mut(current_pid) {
-                // Decrease time slice
-                let time_expired = current_pcb.decrease_time_slice();
-
-                if time_expired {
-                    // Time slice expired, schedule next process
-                    current_pcb.reset_time_slice();
-                    return self.schedule_next(ProcessState::Ready);
-                }
-            }
         }
 
         ProcessSwitchResult::Success

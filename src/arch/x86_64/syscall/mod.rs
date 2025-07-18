@@ -1,14 +1,69 @@
 use crate::arch::x86_64::instruction_wrappers;
 use crate::arch::x86_64::mm as arch_mm;
 use core::arch::asm;
+use core::arch::naked_asm;
+
+use super::process::context_switch_asm::process_end;
 
 const MSR_IA32_STAR: u32 = 0xc0000081;
 const MSR_IA32_LSTAR: u32 = 0xc0000082;
 const MSR_IA32_FMASK: u32 = 0xc0000084;
 const MSR_IA32_EFER: u32 = 0xc0000080;
 
-fn syscall_entrypoint() {
-    log::info!("syscall entrypoint");
+#[unsafe(naked)]
+unsafe extern "C" fn syscall_entrypoint() {
+    naked_asm!(
+        // Save user registers.
+        // RCX and R11 are already saved by the syscall instruction (RIP and RFLAGS).
+        "push rax",
+        "push rbx",
+        "push rdx",
+        "push rsi",
+        "push rdi",
+        "push r8",
+        "push r9",
+        "push r10",
+        "push r12",
+        "push r13",
+        "push r14",
+        "push r15",
+        "push rbp",
+
+        // Save user stack pointer and align stack.
+        "mov rbp, rsp",
+
+        // Call dispatch with syscall number from RAX.
+        // The original RAX was saved on the stack.
+        "mov rdi, [rsp + 12 * 8]", // RAX is the first pushed register
+        "call {dispatch}",
+
+        // Restore user registers
+        "pop rbp",
+        "pop r15",
+        "pop r14",
+        "pop r13",
+        "pop r12",
+        "pop r10",
+        "pop r9",
+        "pop r8",
+        "pop rdi",
+        "pop rsi",
+        "pop rdx",
+        "pop rbx",
+        "pop rax",
+
+        // Return to user.
+        // RCX (user RIP) and R11 (user RFLAGS) are not touched by this function.
+        // The `syscall` instruction will set them, and `sysretq` will use them.
+        "sysretq",
+        dispatch = sym syscall_dispatch,
+    );
+}
+
+fn syscall_dispatch(num: usize) {
+    if num == 1 {
+        process_end()
+    }
 }
 
 pub fn syscall_init() {
@@ -40,7 +95,7 @@ pub fn syscall_init() {
     }
 }
 
-pub fn syscall_to_kernelspace() {
+pub fn syscall_to_kernelspace(num: usize) {
     unsafe {
         let rsp0 = arch_mm::init::TSS_WITH_IO_MAP.tss.rsps[0] as u64
             + ((arch_mm::init::TSS_WITH_IO_MAP.tss.rsps[1] as u64) << 32);
@@ -48,6 +103,7 @@ pub fn syscall_to_kernelspace() {
             "mov rsp, {rsp0}",
             "syscall",
             rsp0 = in(reg) rsp0,
+            in("rax") num,
             out("r11") _,
             lateout("rcx") _,   //syscall
         );

@@ -19,7 +19,7 @@ $(target_boot)/boot.efi: $(vm_bin) FORCE
 build: $(target_boot)/boot.efi
 
 run: build
-	tools/runner target/x86_64-unknown-uefi/debug/boot.efi
+	tools/runner target/x86_64-unknown-uefi/debug/boot.efi $(run_param)
 
 clean:
 	rm -rf target/

@@ -5,10 +5,20 @@
 
 use core::fmt;
 
+use timetomb::kernel::mm::PAGE_SIZE;
+
+use crate::{
+    arch::x86_64::{
+        mm::CR3_ADDR,
+        process::context_switch_asm::{process_entry_wrapper, user_process_entry_wrapper},
+    },
+    kernel::mm::slab::kmalloc,
+};
+
 /// CPU context for x86_64 architecture
 /// This structure represents the complete CPU state that needs to be saved/restored
 /// during context switches.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 #[repr(C)]
 pub struct ProcessContext {
     // General purpose registers
@@ -48,61 +58,60 @@ pub struct ProcessContext {
 }
 
 impl ProcessContext {
-    /// Create a new process context with initial values
-    pub fn new(entry_point: usize, stack_pointer: usize) -> Self {
-        Self {
-            // Initialize general purpose registers to 0
-            rax: 0,
-            rbx: 0,
-            rcx: 0,
-            rdx: 0,
-            rsi: 0,
-            rdi: 0,
-            rbp: 0,
-            rsp: stack_pointer as u64,
-            r8: 0,
-            r9: 0,
-            r10: 0,
-            r11: 0,
-            r12: 0,
-            r13: 0,
-            r14: 0,
-            r15: 0,
+    /// Initialize a new process context for first execution
+    ///
+    /// This function sets up a context that can be used to start a new process.
+    /// It prepares the stack and registers for the initial jump to the process entry point.
+    /// The key insight is that when restore_context is called, it should appear as if
+    /// the process was previously running and is now being resumed.
+    ///
+    /// # Safety
+    /// This function is unsafe because it manipulates raw memory addresses.
+    pub unsafe fn init_process_context(&mut self, entry_point: usize, user_mode: bool) {
+        let kernel_stack_size = PAGE_SIZE * 2;
+        let kernel_stack = Self::allocate_stack(kernel_stack_size).unwrap();
+        self.rsp = kernel_stack as u64;
+        let user_stack_size = PAGE_SIZE * 2;
+        let user_stack = Self::allocate_stack(user_stack_size).unwrap();
+        self.r12 = user_stack as u64;
 
-            // Set instruction pointer to entry point
-            rip: entry_point as u64,
-
-            // Set default flags (interrupts enabled)
-            rflags: 0x202, // IF (Interrupt Flag) set
-
-            // Set up segment registers for user mode
-            cs: 0x20, // User code segment (GDT entry 4, RPL 3)
-            ss: 0x18, // User data segment (GDT entry 3, RPL 3)
-            ds: 0x18, // User data segment
-            es: 0x18, // User data segment
-            fs: 0x18, // User data segment
-            gs: 0x18, // User data segment
-
-            // Initialize CR3 to kernel page table for now
-            cr3: 0, // Will be set by memory manager
+        // For new processes, we need to set up the context so that when restore_context
+        // is called, it jumps to a wrapper function that will then call the actual entry point.
+        // This simulates the process being "resumed" from a previous context switch.
+        if user_mode {
+            self.rip = user_process_entry_wrapper as usize as u64;
+        } else {
+            self.rip = process_entry_wrapper as usize as u64;
         }
+
+        // Store the actual entry point in a register that the wrapper can use.
+        // Save it in callee-saved register (rbx).
+        self.rbx = entry_point as u64;
+
+        // Set up flags (enable interrupts)
+        self.rflags = 0x202; // IF (Interrupt Flag) set
+
+        // Both user process and kernel process init to kernel segments,
+        // since user process need to sysret from kernel space.
+        self.cs = 0x08; // Kernel code segment (GDT entry 1)
+        self.ss = 0x10; // Kernel data segment (GDT entry 2)
+        self.ds = 0x10;
+        self.es = 0x10;
+        self.fs = 0x10;
+        self.gs = 0x10;
+
+        // CR3 will be set by the memory manager
+        unsafe { self.cr3 = CR3_ADDR as u64 };
     }
 
-    /// Create a kernel context (for kernel threads)
-    pub fn new_kernel(entry_point: usize, stack_pointer: usize) -> Self {
-        let mut ctx = Self::new(entry_point, stack_pointer);
-
-        // Set kernel segment selectors
-        ctx.cs = 0x08; // Kernel code segment (GDT entry 1)
-        ctx.ss = 0x10; // Kernel data segment (GDT entry 2)
-        ctx.ds = 0x10;
-        ctx.es = 0x10;
-        ctx.fs = 0x10;
-        ctx.gs = 0x10;
-
-        ctx
+    /// Allocate stack space for the process
+    fn allocate_stack(size: usize) -> Result<usize, &'static str> {
+        let addr = kmalloc(size);
+        let stack_top = addr + size - 8; // Leave space for alignment
+        // Set up stack - align to 16 bytes and leave space for initial setup
+        let aligned_stack = (stack_top - 16) & !0xF;
+        Ok(aligned_stack)
     }
-
     /// Set the instruction pointer
     pub fn set_instruction_pointer(&mut self, rip: u64) {
         self.rip = rip;
@@ -147,38 +156,6 @@ pub unsafe fn save_restore_context(current: Option<&mut ProcessContext>, next: &
                 current.unwrap() as *mut ProcessContext,
                 next as *const ProcessContext,
             );
-        }
-    }
-}
-
-impl Default for ProcessContext {
-    fn default() -> Self {
-        Self {
-            rax: 0,
-            rbx: 0,
-            rcx: 0,
-            rdx: 0,
-            rsi: 0,
-            rdi: 0,
-            rbp: 0,
-            rsp: 0,
-            r8: 0,
-            r9: 0,
-            r10: 0,
-            r11: 0,
-            r12: 0,
-            r13: 0,
-            r14: 0,
-            r15: 0,
-            rip: 0,
-            rflags: 0x202,
-            cs: 0,
-            ss: 0,
-            ds: 0,
-            es: 0,
-            fs: 0,
-            gs: 0,
-            cr3: 0,
         }
     }
 }

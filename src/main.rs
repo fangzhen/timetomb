@@ -10,6 +10,7 @@ use crate::arch::x86_64::mm as arch_mm;
 use crate::kernel::process::ProcessApi;
 use alloc::string::String;
 use arch::x86_64::mm::init::TSS_WITH_IO_MAP;
+use arch::x86_64::syscall;
 use core::panic::PanicInfo;
 use kernel::mm::physical;
 use kernel::mm::slab;
@@ -97,6 +98,7 @@ pub extern "C" fn main() -> ! {
 
     // Start the process management system
     crate::kernel::process::init();
+    syscall::syscall_init();
     create_test_process();
 
     log::info!("Let go...");
@@ -140,7 +142,7 @@ fn create_test_process() {
     match ProcessApi::create_process(
         test_process_function2 as usize,
         Some(String::from("test_process_2")),
-        false,
+        true,
     ) {
         Ok(pid) => {
             log::info!("Created test process with PID: {:?}", pid);
@@ -173,13 +175,9 @@ fn test_process_function() {
 fn test_process_function2() {
     log::info!("[P2] Test process is running!");
 
-    for i in 0..10 {
-        log::info!("[P2] Test process iteration: {}", i);
-
-        // Yield CPU every few iterations
-        if i % 2 == 0 {
-            ProcessApi::yield_current();
-        }
+    for _ in 0..10 {
+        log::info!("[P2]: RUNNING");
+        for _ in 0..100000 {}
     }
 
     log::info!("[P2] Test process finished");

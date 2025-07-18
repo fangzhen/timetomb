@@ -4,7 +4,7 @@
 //! CPU context during process switches.
 
 use crate::{
-    arch::x86_64::mm::CR3_ADDR,
+    arch::x86_64::{syscall::syscall_to_kernelspace, syscall::sysret_to_userspace},
     kernel::process::{ProcessContext, ProcessManager},
 };
 use core::arch::naked_asm;
@@ -119,100 +119,54 @@ pub unsafe extern "C" fn save_restore_context(
     );
 }
 
-/// Initialize a new process context for first execution
-///
-/// This function sets up a context that can be used to start a new process.
-/// It prepares the stack and registers for the initial jump to the process entry point.
-/// The key insight is that when restore_context is called, it should appear as if
-/// the process was previously running and is now being resumed.
-///
-/// # Safety
-/// This function is unsafe because it manipulates raw memory addresses.
-pub unsafe fn init_process_context(
-    context: *mut ProcessContext,
-    entry_point: usize,
-    stack_top: usize,
-    user_mode: bool,
-) {
-    let ctx = unsafe { &mut *context };
-
-    // Clear all registers
-    ctx.rax = 0;
-    ctx.rbx = 0;
-    ctx.rcx = 0;
-    ctx.rdx = 0;
-    ctx.rsi = 0;
-    ctx.rdi = 0;
-    ctx.rbp = 0;
-    ctx.r8 = 0;
-    ctx.r9 = 0;
-    ctx.r10 = 0;
-    ctx.r11 = 0;
-    ctx.r12 = 0;
-    ctx.r13 = 0;
-    ctx.r14 = 0;
-    ctx.r15 = 0;
-
-    // Set up stack - align to 16 bytes and leave space for initial setup
-    let aligned_stack = (stack_top - 16) & !0xF;
-    ctx.rsp = aligned_stack as u64;
-
-    // For new processes, we need to set up the context so that when restore_context
-    // is called, it jumps to a wrapper function that will then call the actual entry point.
-    // This simulates the process being "resumed" from a previous context switch.
-    ctx.rip = process_entry_wrapper as usize as u64;
-
-    // Store the actual entry point in a register that the wrapper can use.
-    // Save it in callee-saved register (rbx).
-    ctx.rbx = entry_point as u64;
-
-    // Set up flags (enable interrupts)
-    ctx.rflags = 0x202; // IF (Interrupt Flag) set
-
-    if user_mode {
-        // User mode segments
-        ctx.cs = 0x20; // User code segment (GDT entry 4, RPL 3)
-        ctx.ss = 0x18; // User data segment (GDT entry 3, RPL 3)
-        ctx.ds = 0x18;
-        ctx.es = 0x18;
-        ctx.fs = 0x18;
-        ctx.gs = 0x18;
-    } else {
-        // Kernel mode segments
-        ctx.cs = 0x08; // Kernel code segment (GDT entry 1)
-        ctx.ss = 0x10; // Kernel data segment (GDT entry 2)
-        ctx.ds = 0x10;
-        ctx.es = 0x10;
-        ctx.fs = 0x10;
-        ctx.gs = 0x10;
-    }
-
-    // CR3 will be set by the memory manager
-    unsafe { ctx.cr3 = CR3_ADDR as u64 };
-}
-
 /// Entry wrapper for new processes
 ///
 /// This function is called when a new process is first scheduled.
-/// It receives the actual entry point in RDI and jumps to it.
+/// It receives the actual entry point in RBX and jumps to it.
 /// This simulates the process being resumed from a context switch.
 #[unsafe(naked)]
-unsafe extern "C" fn process_entry_wrapper() {
+pub unsafe extern "C" fn process_entry_wrapper() {
     naked_asm!(
         // Call schedule_end to ensure process manager is unlocked
         "call schedule_end",
-        // RDI contains the actual entry point
-        // Set up a clean stack frame
+        // RBX contains the actual entry point
+        // Set up a clean stack frame and jump to it.
         "xor rbp, rbp", // Clear frame pointer
         "push rbp",     // Push null frame pointer (for stack unwinding)
+        "and rsp, -16", // align rsp to 16 bytes
         "mov rbp, rsp", // Set up frame pointer
-        // Jump to the actual entry point
-        // RDI already contains the entry point address
-        "and rsp, -16", //align rsp to 16 bytes
         "call rbx",
-        // If the process returns, we should terminate it
         "call process_end",
         "2: jmp 2b" // Infinite loop as fallback
+    );
+}
+/// Entry wrapper for new processes
+///
+/// This function is called when a new process is first scheduled.
+/// It receives the actual entry point in RBX and jumps to it.
+/// This simulates the process being resumed from a context switch.
+#[unsafe(naked)]
+pub unsafe extern "C" fn user_process_entry_wrapper() {
+    naked_asm!(
+        // Call schedule_end to ensure process manager is unlocked
+        "call schedule_end",
+        // param to sysret_to_user
+        "mov rdi, rbx",  // user entry point
+        "xor rbp, rbp", // Clear frame pointer
+        "push rbp",     // Push null frame pointer (for stack unwinding)
+        "and r12, -16", // user stack rsp is stored in R12, align to 16 bytes
+        "mov rbp, r12", // Set up frame pointer
+        "lea rax, [3f]", // user process return to label 3:
+        "sub r12, 8",
+        "mov [r12], rax",
+        "mov rsi, r12",
+        "call {sysret_to_user}",
+        "3:",
+        "mov rdi, 1",
+        "call {syscall_to_kernel}",
+        "2: jmp 2b", // Infinite loop as fallback
+        sysret_to_user = sym sysret_to_userspace,
+        syscall_to_kernel = sym syscall_to_kernelspace,
     );
 }
 

@@ -13,8 +13,6 @@ use super::manager::ProcessManager;
 pub struct ProcessCreateParams {
     /// Entry point address
     pub entry_point: usize,
-    /// Stack size in bytes
-    pub stack_size: usize,
     /// Process name (optional)
     pub name: Option<String>,
     /// Parent process ID (optional)
@@ -25,7 +23,6 @@ impl Default for ProcessCreateParams {
     fn default() -> Self {
         Self {
             entry_point: 0,
-            stack_size: 0x10000, // 64KB default stack
             name: None,
             parent_pid: None,
         }
@@ -46,15 +43,14 @@ impl ProcessApi {
         let mut manager = pm.lock();
         let params = ProcessCreateParams {
             entry_point: entry_point,
-            stack_size: 0x8000, // 32KB stack for kernel threads
             name,
             parent_pid: None,
         };
         let pid;
         if user_mode {
-            pid = manager.create_process(params.entry_point, params.stack_size)?;
+            pid = manager.create_process(params.entry_point)?;
         } else {
-            pid = manager.create_kernel_process(params.entry_point, params.stack_size)?;
+            pid = manager.create_kernel_process(params.entry_point)?;
         }
 
         // Set optional parameters
