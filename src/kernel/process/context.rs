@@ -67,13 +67,16 @@ impl ProcessContext {
     ///
     /// # Safety
     /// This function is unsafe because it manipulates raw memory addresses.
-    pub unsafe fn init_process_context(&mut self, entry_point: usize, user_mode: bool) {
-        let kernel_stack_size = PAGE_SIZE * 2;
-        let kernel_stack = Self::allocate_stack(kernel_stack_size).unwrap();
-        self.rsp = kernel_stack as u64;
-        let user_stack_size = PAGE_SIZE * 2;
-        let user_stack = Self::allocate_stack(user_stack_size).unwrap();
-        self.r12 = user_stack as u64;
+    pub unsafe fn init_process_context(
+        &mut self,
+        entry_point: usize,
+        user_mode: bool,
+        kernel_stack_base: usize,
+        user_stack_base: usize,
+    ) {
+        self.rsp = kernel_stack_base as u64;
+        self.r12 = user_stack_base as u64;
+        self.r13 = self as *const ProcessContext as u64; // fake pt_regs
 
         // For new processes, we need to set up the context so that when restore_context
         // is called, it jumps to a wrapper function that will then call the actual entry point.
@@ -107,10 +110,43 @@ impl ProcessContext {
     /// Allocate stack space for the process
     fn allocate_stack(size: usize) -> Result<usize, &'static str> {
         let addr = kmalloc(size);
-        let stack_top = addr + size - 8; // Leave space for alignment
+        let stack_base = addr + size - 8; // Leave space for alignment
         // Set up stack - align to 16 bytes and leave space for initial setup
-        let aligned_stack = (stack_top - 16) & !0xF;
+        let aligned_stack = (stack_base - 16) & !0xF;
         Ok(aligned_stack)
+    }
+
+    /// Allocate new stacks for a forked process
+    /// This creates new kernel and user stacks while preserving the current context
+    pub unsafe fn allocate_new_stacks(&mut self) -> Result<(), &'static str> {
+        let kernel_stack_size = PAGE_SIZE * 2;
+        let user_stack_size = PAGE_SIZE * 2;
+
+        // Allocate new kernel stack
+        let new_kernel_stack = Self::allocate_stack(kernel_stack_size)?;
+
+        // Allocate new user stack
+        let new_user_stack = Self::allocate_stack(user_stack_size)?;
+
+        // Calculate the offset from old stack to new stack
+        let old_kernel_stack_base = self.rsp & !(PAGE_SIZE as u64 - 1); // Align to page boundary
+        let kernel_stack_offset = new_kernel_stack as i64 - old_kernel_stack_base as i64;
+
+        let old_user_stack_base = self.r12 & !(PAGE_SIZE as u64 - 1); // Align to page boundary
+        let user_stack_offset = new_user_stack as i64 - old_user_stack_base as i64;
+
+        // Update stack pointers with the offset
+        self.rsp = (self.rsp as i64 + kernel_stack_offset) as u64;
+        self.r12 = (self.r12 as i64 + user_stack_offset) as u64;
+
+        // Update frame pointer if it points to the stack
+        if self.rbp >= old_kernel_stack_base
+            && self.rbp < old_kernel_stack_base + kernel_stack_size as u64
+        {
+            self.rbp = (self.rbp as i64 + kernel_stack_offset) as u64;
+        }
+
+        Ok(())
     }
     /// Set the instruction pointer
     pub fn set_instruction_pointer(&mut self, rip: u64) {
@@ -140,23 +176,6 @@ impl ProcessContext {
     /// Get the page table base
     pub fn page_table(&self) -> u64 {
         self.cr3
-    }
-}
-/// Save the current CPU context
-/// Restore next context to the CPU
-pub unsafe fn save_restore_context(current: Option<&mut ProcessContext>, next: &ProcessContext) {
-    unsafe {
-        if current.is_none() {
-            crate::arch::x86_64::process::context_switch_asm::save_restore_context(
-                0 as *mut ProcessContext,
-                next as *const ProcessContext,
-            );
-        } else {
-            crate::arch::x86_64::process::context_switch_asm::save_restore_context(
-                current.unwrap() as *mut ProcessContext,
-                next as *const ProcessContext,
-            );
-        }
     }
 }
 

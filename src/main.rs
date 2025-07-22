@@ -7,16 +7,17 @@ extern crate alloc;
 use crate::arch::x86_64::instruction_wrappers;
 use crate::arch::x86_64::interrupt;
 use crate::arch::x86_64::mm as arch_mm;
-use crate::kernel::process::ProcessApi;
+use crate::kernel::process;
 use alloc::string::String;
 use arch::x86_64::mm::init::TSS_WITH_IO_MAP;
 use arch::x86_64::syscall;
 use core::panic::PanicInfo;
 use kernel::mm::physical;
 use kernel::mm::slab;
-use kernel::process::init::idle_process;
+use kernel::process::idle;
 use timetomb::arch::x86_64::SetupHeader;
 use timetomb::arch::x86_64::mm as share_mm;
+use timetomb::arch::x86_64::mm::p2l;
 use timetomb::driver::uart;
 use timetomb::kernel::logger::Logger;
 use timetomb::kernel::mm::KERNEL_STACK_SIZE;
@@ -75,6 +76,7 @@ pub extern "C" fn main() -> ! {
     memblock::add_used_memory(setup_header.kernel_stack_physical, KERNEL_STACK_SIZE, 0);
     memblock::setup(share_mm::p2l);
     memblock::print_memblocks();
+    let kernel_stack_base = p2l(setup_header.kernel_stack_physical + KERNEL_STACK_SIZE);
 
     // memory management init
     physical::init_page_allocator(unsafe { &*(&raw const memblock::ALL_MEMBLOCKS) }, unsafe {
@@ -93,16 +95,13 @@ pub extern "C" fn main() -> ! {
 
     interrupt::apic::init_apic(setup_header.rsdp_addr);
 
-    // TODO: this actually use of syscall/sysret. refoctor later.
-    //process::to_userspace_ret();
-
     // Start the process management system
-    crate::kernel::process::init();
+    crate::kernel::process::init(kernel_stack_base);
     syscall::syscall_init();
-    create_test_process();
-
-    log::info!("Let go...");
-    idle_process();
+    _ = crate::kernel::process::start_user_init();
+    create_test_kernel_thread();
+    process::yield_current();
+    idle();
 }
 
 fn test_mm() {
@@ -119,66 +118,30 @@ fn test_mm() {
     slab::test_slab();
 }
 
-fn create_test_process() {
+fn create_test_kernel_thread() {
     log::info!("Testing process management system");
 
-    match ProcessApi::create_process(
-        test_process_function as usize,
+    match process::create_process(
+        test_kernel_thread_entry as usize,
         Some(String::from("test_process")),
         false,
     ) {
         Ok(pid) => {
-            log::info!("Created test process with PID: {:?}", pid);
+            log::info!("Created test kernel thread with PID: {:?}", pid);
 
-            if let Some(info) = ProcessApi::get_process_info(pid) {
+            if let Some(info) = process::get_process_info(pid) {
                 log::info!("Process info: {}", info);
             }
         }
         Err(e) => {
-            log::error!("Failed to create test process: {}", e);
-        }
-    }
-
-    match ProcessApi::create_process(
-        test_process_function2 as usize,
-        Some(String::from("test_process_2")),
-        true,
-    ) {
-        Ok(pid) => {
-            log::info!("Created test process with PID: {:?}", pid);
-
-            if let Some(info) = ProcessApi::get_process_info(pid) {
-                log::info!("Process info: {}", info);
-            }
-        }
-        Err(e) => {
-            log::error!("Failed to create test process: {}", e);
+            log::error!("Failed to create test kernel thread: {}", e);
         }
     }
 }
 
-fn test_process_function() {
-    log::info!("[P1] Test process is running!");
+fn test_kernel_thread_entry() {
+    log::info!("[Test kernel thread]: running!");
 
-    for i in 0..10 {
-        log::info!("[P1] Test process iteration: {}", i);
-
-        // Yield CPU every few iterations
-        if i % 3 == 0 {
-            ProcessApi::yield_current();
-        }
-    }
-
-    log::info!("[P1] Test process finished");
-}
-
-fn test_process_function2() {
-    log::info!("[P2] Test process is running!");
-
-    for _ in 0..10 {
-        log::info!("[P2]: RUNNING");
-        for _ in 0..100000 {}
-    }
-
-    log::info!("[P2] Test process finished");
+    process::yield_current();
+    idle();
 }

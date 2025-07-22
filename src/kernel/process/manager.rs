@@ -1,4 +1,7 @@
-use crate::kernel::process::context::save_restore_context;
+use crate::arch::x86_64::mm as arch_mm;
+use crate::arch::x86_64::process::context_switch_asm::{fork_ret, save_restore_context};
+use crate::arch::x86_64::syscall::pt_regs::PtRegs;
+use crate::kernel::process::ProcessContext;
 
 use super::{ProcessControlBlock, ProcessId, ProcessState};
 use super::{RoundRobinScheduler, Scheduler};
@@ -52,6 +55,16 @@ impl ProcessManager {
             .expect("Process manager not initialized")
     }
 
+    pub fn create_stub_kernel(&mut self, kernel_stack_base: usize) -> ProcessId {
+        let pid = ProcessId(0);
+        let pcb = ProcessControlBlock::new_stub(pid, kernel_stack_base);
+
+        self.processes.insert(pid, pcb);
+        self.current_process = Some(pid);
+
+        log::info!("Created new stub kernel process 0",);
+        return pid;
+    }
     /// Create a new user process
     pub fn create_process(&mut self, entry_point: usize) -> Result<ProcessId, &'static str> {
         let pid = self.next_pid;
@@ -125,7 +138,7 @@ impl ProcessManager {
         }
         // Get next process from scheduler and switch to it
         let next_pid = self.schedule().unwrap();
-        log::debug!("Switching to process {:?}", next_pid);
+        log::info!("Switching to process {:?}", next_pid);
         self.set_current_process(Some(next_pid));
 
         let next_pcb = self.get_process_mut(next_pid).unwrap();
@@ -145,21 +158,24 @@ impl ProcessManager {
             }
         }
 
-        let next_context = next_pcb.context().clone();
-
+        // TODO check next pid is not current pid
+        let next_context_ptr = next_pcb.context() as *const ProcessContext;
+        let kernel_rsp = next_pcb.memory_info.kernel_stack_base;
         // This call will not return - it jumps directly to the next process
-        let current_context;
+        let current_context_ptr;
         if current.is_none() {
-            current_context = None;
+            current_context_ptr = 0 as *mut ProcessContext;
         } else {
-            current_context = Some(
-                self.get_process_mut(current.unwrap())
-                    .unwrap()
-                    .context_mut(),
-            );
+            current_context_ptr = (self
+                .get_process_mut(current.unwrap())
+                .unwrap()
+                .context_mut()) as *mut ProcessContext;
         }
         unsafe {
-            save_restore_context(current_context, &next_context);
+            // update tss.rsp0 TODO(fangzhen) only needed for user process?
+            arch_mm::init::TSS_WITH_IO_MAP.tss.rsps[0] = (kernel_rsp & 0xFFFFFFFF) as u32;
+            arch_mm::init::TSS_WITH_IO_MAP.tss.rsps[1] = (kernel_rsp >> 32) as u32;
+            save_restore_context(current_context_ptr, next_context_ptr);
         }
 
         ProcessSwitchResult::Success
@@ -178,6 +194,66 @@ impl ProcessManager {
     /// Set the current running process
     pub fn set_current_process(&mut self, pid: Option<ProcessId>) {
         self.current_process = pid;
+    }
+
+    /// Fork the current process - creates a child process that is a copy of the parent
+    /// Returns the child PID in the parent process and 0 in the child process
+    pub fn fork(&mut self, regs: &PtRegs) -> Result<ProcessId, &'static str> {
+        let current_pid = self.current_process().ok_or("No current process to fork")?;
+
+        // Create new PID for child
+        let child_pid = self.next_pid;
+        self.next_pid.0 += 1;
+
+        // Get the parent process
+        let parent_pcb = self
+            .get_process(current_pid)
+            .ok_or("Current process not found")?;
+
+        // Clone the parent's PCB
+        let mut child_pcb = ProcessControlBlock::fork_from(child_pid, parent_pcb)?;
+        child_pcb.set_parent_pid(current_pid);
+        child_pcb.set_state(ProcessState::Ready);
+
+        log::info!(
+            "Forked process {:?} from parent {:?}",
+            child_pid,
+            current_pid
+        );
+        // Set return value for child process (0)
+        let child_context = child_pcb.context_mut();
+        child_context.rax = 0;
+        let parent_pcb_ptr = parent_pcb as *const ProcessControlBlock;
+
+        // Add child to processes and scheduler
+        self.processes.insert(child_pid, child_pcb);
+        self.scheduler.add_process(child_pid);
+
+        let cp = self.get_process_mut(child_pid).unwrap();
+        let child_pcb_ptr = cp as *mut ProcessControlBlock;
+        unsafe { ProcessManager::fix_context(child_pcb_ptr, parent_pcb_ptr, regs) };
+
+        Ok(child_pid)
+    }
+
+    unsafe extern "C" fn fix_context(
+        child_pcb_ptr: *mut ProcessControlBlock,
+        parent_pcb_ptr: *const ProcessControlBlock,
+        regs: &PtRegs,
+    ) {
+        let child_pcb = unsafe { child_pcb_ptr.as_mut().unwrap() };
+        let parent_pcb = unsafe { parent_pcb_ptr.as_ref().unwrap() };
+        let child_kernel_base = child_pcb.memory_info.kernel_stack_base;
+        let child_user_base = child_pcb.memory_info.user_stack_base;
+        let child_context = child_pcb.context_mut();
+        unsafe { save_restore_context(child_context, 0 as *const ProcessContext) };
+
+        child_context.rsp = child_kernel_base as u64;
+        child_context.rip = fork_ret as u64;
+        child_context.rbx = regs.rcx;
+        child_context.r13 = regs as *const PtRegs as u64;
+        child_context.r12 =
+            child_user_base as u64 - (parent_pcb.memory_info.user_stack_base as u64 - regs.rdx); // TODO simply regs.rdx (user rsp) when page table is setupped.
     }
 
     /// Terminate a process

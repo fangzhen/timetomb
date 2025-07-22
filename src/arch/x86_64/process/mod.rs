@@ -5,11 +5,8 @@
 
 pub mod context_switch_asm;
 
-use crate::kernel::process::ProcessApi;
-
-/// Initialize x86_64 process management
-pub fn init() {}
+use crate::kernel::process;
 
 pub fn timer_tick() {
-    ProcessApi::schedule_next()
+    process::schedule_next()
 }

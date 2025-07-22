@@ -72,9 +72,11 @@ pub unsafe extern "C" fn save_restore_context(
         "mov rax, cr3",
         "mov [rdi + 0xc0], rax",
         //
-        // RESTORE
-        // Load CR3 first (page table)
+        // RESTORE and jump to new process
+        "test rsi, rsi", // If no next context, just return.
+        "jz 2f",
         "3:",
+        // Load CR3 first (page table)
         "mov rax, [rsi + 0xc0]", // Load CR3
         "mov cr3, rax",
         // Load segment registers
@@ -127,8 +129,8 @@ pub unsafe extern "C" fn save_restore_context(
 #[unsafe(naked)]
 pub unsafe extern "C" fn process_entry_wrapper() {
     naked_asm!(
-        // Call schedule_end to ensure process manager is unlocked
-        "call schedule_end",
+        // Call simulate_schedule_end to ensure process manager is unlocked
+        "call simulate_schedule_end",
         // RBX contains the actual entry point
         // Set up a clean stack frame and jump to it.
         "xor rbp, rbp", // Clear frame pointer
@@ -148,21 +150,22 @@ pub unsafe extern "C" fn process_entry_wrapper() {
 #[unsafe(naked)]
 pub unsafe extern "C" fn user_process_entry_wrapper() {
     naked_asm!(
-        // Call schedule_end to ensure process manager is unlocked
-        "call schedule_end",
+        // Call simulate_schedule_end to ensure process manager is unlocked
+        "call simulate_schedule_end",
         // param to sysret_to_user
         "mov rdi, rbx",  // user entry point
         "xor rbp, rbp", // Clear frame pointer
         "push rbp",     // Push null frame pointer (for stack unwinding)
         "and r12, -16", // user stack rsp is stored in R12, align to 16 bytes
         "mov rbp, r12", // Set up frame pointer
-        "lea rax, [3f]", // user process return to label 3:
+        "lea rax, [3f]", // user process return to label 3: process_end() syscall
         "sub r12, 8",
         "mov [r12], rax",
         "mov rsi, r12",
+        "mov rdx, r13",
         "call {sysret_to_user}",
         "3:",
-        "mov rdi, 1",
+        "mov rdi, 1",  // process exit
         "call {syscall_to_kernel}",
         "2: jmp 2b", // Infinite loop as fallback
         sysret_to_user = sym sysret_to_userspace,
@@ -170,8 +173,23 @@ pub unsafe extern "C" fn user_process_entry_wrapper() {
     );
 }
 
+#[unsafe(naked)]
+pub unsafe extern "C" fn fork_ret() {
+    naked_asm!(
+        // Call simulate_schedule_end to ensure process manager is unlocked
+        "call simulate_schedule_end",
+        // param to sysret_to_user
+        "mov rdi, rbx",  // user entry point
+        "mov rsi, r12",
+        "mov rdx, r13",
+        "call {sysret_to_user}",
+        "2: jmp 2b", // Infinite loop as fallback
+        sysret_to_user = sym sysret_to_userspace,
+    );
+}
+
 #[unsafe(no_mangle)]
-pub fn schedule_end() {
+pub extern "C" fn simulate_schedule_end() {
     let pm = ProcessManager::get();
     if pm.is_locked() {
         unsafe { pm.force_unlock() };
