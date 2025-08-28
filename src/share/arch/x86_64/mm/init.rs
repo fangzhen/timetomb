@@ -31,6 +31,7 @@ fn add_page_entry(
 }
 
 /// Add page table for physical -> linear mapping
+/// p2l: physical -> linear addr mapping in current page table
 pub fn add_page_mapping(
     pgt_allocator: &mut impl FnMut() -> PhysicalAddr,
     p2l: fn(PhysicalAddr) -> LinearAddr,

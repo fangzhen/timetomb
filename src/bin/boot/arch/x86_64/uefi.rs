@@ -1,6 +1,6 @@
 use log::*;
 use timetomb::arch::x86_64::ffi_shared::SETUP_HEADER_OFFSET;
-use timetomb::arch::x86_64::mm::p2l;
+use timetomb::arch::x86_64::mm::{MemoryDescriptor, p2l};
 
 use crate::arch::uefi;
 use crate::arch::uefi::spec;
@@ -10,7 +10,7 @@ use timetomb::arch::x86_64::mm as arch_mm;
 use timetomb::driver::uart;
 use timetomb::kernel::logger::Logger;
 use timetomb::kernel::mm::memblock;
-use timetomb::kernel::mm::{KERNEL_STACK_SIZE, PAGE_SIZE};
+use timetomb::kernel::mm::PAGE_SIZE;
 
 use timetomb::arch::x86_64::SetupHeader;
 
@@ -25,6 +25,7 @@ pub static mut SETUP_HEADER: SetupHeader = SetupHeader {
     kernel_physical: 0,
     kernel_size: 0,
     kernel_stack_physical: 0,
+    kernel_area_size: 0,
     rsdp_addr: 0,
 };
 
@@ -58,10 +59,6 @@ pub extern "efiapi" fn efi_main(hdr: spec::Handle, system: *const spec::SystemTa
     // including memory management, text output etc.
     info!("Memory mapping after exit boot service:");
     arch_mm::print_memory_map(uefi_map);
-    unsafe {
-        SETUP_HEADER.mem_desc_count = uefi_map.len();
-        SETUP_HEADER.mem_desc = uefi_map.as_ptr() as usize;
-    }
 
     // We already runs on paging since paging is mandatory on x86_64
     // long mode. UEFI firmware had setup an identity mappend page table.
@@ -70,48 +67,8 @@ pub extern "efiapi" fn efi_main(hdr: spec::Handle, system: *const spec::SystemTa
     memblock::setup(p2l);
     memblock::print_memblocks();
 
-    let (cr3_addr, max_pml4_idx) = boot_arch_mm::init_paging();
-    unsafe {
-        SETUP_HEADER.cr3_addr = cr3_addr;
-        SETUP_HEADER.identity_map_max_idx = max_pml4_idx;
-    }
-
-    // set kernel stack to virtual address
-    let kernel_stack_physical =
-        memblock::allocate_physical_memory(0, KERNEL_STACK_SIZE, PAGE_SIZE, 0);
-    unsafe { SETUP_HEADER.kernel_stack_physical = kernel_stack_physical }
-    let kernel_stack_addr = p2l(kernel_stack_physical) + KERNEL_STACK_SIZE; // stack grows down
-    info!("kernel stack addr: {:#x}", kernel_stack_addr);
-
-    unsafe {
-        asm!("mov rax, 0x000ffffffffff000",
-             "and rdi, rax",
-             "mov cr3, rdi",
-             //flush TLB
-             "mov rcx, cr4",
-             "mov rax, rcx",
-             "xor rcx, 128", // PGE
-             "mov cr4, rcx",
-             "mov cr4, rax",
-
-             // use new kernel stack
-             "mov rsp, {kernel_stack_addr}",
-             kernel_stack_addr = in(reg) kernel_stack_addr,
-             in("rdi") cr3_addr,
-             out("rax") _,
-             out("rcx") _,
-        )
-    }
-    info!("We are using new page table and kernel stack now!");
-
-    // The local variables are all invalid because of stack switch.
-    // So we move to a new function.
-    efi_main_bottom()
-}
-
-pub fn efi_main_bottom() {
     collect_boot_info();
-    go_to_vmkernel();
+    go_to_vmkernel(uefi_map);
 }
 
 fn collect_boot_info() {
@@ -119,7 +76,7 @@ fn collect_boot_info() {
         SETUP_HEADER.rsdp_addr = uefi::get_rsdp_addr();
     }
 }
-pub fn go_to_vmkernel() {
+pub fn go_to_vmkernel(uefi_map: &[MemoryDescriptor]) {
     unsafe {
         info!(
             "vmkernel initial address: {:x} - {:x}",
@@ -128,18 +85,30 @@ pub fn go_to_vmkernel() {
     }
     let vmkernel_start = unsafe { &__vmkernel_start as *const u8 as usize };
     let vmkernel_end = unsafe { &__vmkernel_end as *const u8 as usize };
-    let size = vmkernel_end as usize - vmkernel_start as usize;
+    let kernel_size = vmkernel_end as usize - vmkernel_start as usize;
+    let kernel_size_align = align_ceil(kernel_size, size_of::<usize>());
+    let um_len = uefi_map.len();
+    let um_start = uefi_map.as_ptr() as usize;
+    let um_size = um_len * size_of::<MemoryDescriptor>();
+    let um_size_align = align_ceil(um_size, size_of::<usize>());
+    let size = kernel_size_align + um_size_align;
 
     let kernel_physical = memblock::allocate_physical_memory(0, size, PAGE_SIZE, 0);
-    for i in 0..size {
+    for i in 0..kernel_size {
         unsafe { *((kernel_physical + i) as *mut u8) = *((vmkernel_start + i) as *const u8) };
+    }
+    for i in 0..um_size {
+        unsafe {
+            *((kernel_physical + kernel_size_align + i) as *mut u8) = *((um_start + i) as *const u8)
+        };
     }
     boot_arch_mm::paging_kernel_text_map(kernel_physical, size);
     unsafe {
         SETUP_HEADER.kernel_physical = kernel_physical;
-        SETUP_HEADER.kernel_size = size;
-        SETUP_HEADER.pgtable_size = boot_arch_mm::PGT_MEMORY.current;
-        // from now on, no new page table entry can be added in boot code
+        SETUP_HEADER.kernel_size = kernel_size;
+        SETUP_HEADER.mem_desc = arch_mm::VMKERNEL_ENTRY_ADDRESS + kernel_size_align;
+        SETUP_HEADER.mem_desc_count = um_len;
+        SETUP_HEADER.kernel_area_size = size;
     }
 
     let setup_physical = kernel_physical + SETUP_HEADER_OFFSET;
@@ -152,4 +121,8 @@ pub fn go_to_vmkernel() {
              entry = in(reg) arch_mm::VMKERNEL_ENTRY_ADDRESS,
         )
     }
+}
+
+fn align_ceil(n: usize, a: usize) -> usize {
+    return (n + a - 1) / a * a;
 }

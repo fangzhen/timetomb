@@ -8,10 +8,7 @@ use core::fmt;
 use timetomb::kernel::mm::PAGE_SIZE;
 
 use crate::{
-    arch::x86_64::{
-        mm::CR3_ADDR,
-        process::context_switch_asm::{process_entry_wrapper, user_process_entry_wrapper},
-    },
+    arch::x86_64::process::context_switch_asm::{process_entry_wrapper, user_process_entry_wrapper},
     kernel::mm::slab::kmalloc,
 };
 
@@ -103,8 +100,10 @@ impl ProcessContext {
         self.fs = 0x10;
         self.gs = 0x10;
 
-        // CR3 will be set by the memory manager
-        unsafe { self.cr3 = CR3_ADDR as u64 };
+        // TODO
+        unsafe {
+            core::arch::asm!( "mov {}, cr3", out(reg) self.cr3);
+        };
     }
 
     /// Allocate stack space for the process

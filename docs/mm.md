@@ -1,11 +1,79 @@
 ## 内存管理
+以下都是指x86_64架构下。
 
-1. 物理内存信息获取：使用UEFI `EFI_BOOT_SERVICES.GetMemoryMap`
+1. UEFI提供的内存管理
 2. 早期内存管理
 3. 完整内存管理
 
+### UEFI运行时
+UEFI固件为其上运行的UEFI程序准备的运行时环境：
+- CPU 模式：x86_64 long mode, CPL=0
+- 分页：4级页表，采用identity 映射。
+- GDT：包含一个简单的，扁平模型的GDT。长模式下已无分段。
+- IDT：包含一个IDT，用于调试和必要的硬件处理。
+- 栈：UEFI固件加载UEFI应用时，会为其分配栈。
+
+Boot service中的内存相关API：
+
+- `GetMemoryMap`：获取系统内存分布情况
+- `AllocatePool/FreePool`：按页分配/回收内存
+- `AllocatePages/FreePages`：按字节分配/回收内存
+
+
+vmkernel需求：
+1. 加载地址在`VMKERNEL_ENTRY_ADDRESS`，运行时至还需要以下内存：
+   - 内核栈 (kernel text)
+   - 内存段、页初始化
+     - 新page table本身，包含direct map、kernel text (kernel text)
+     - 新GDT、TSS、IDT
+   - memblock系统建立
+     - 硬件MemoryMap（uefi map）
+     - memblock所需内存
+   - 物理内存管理 - struct page array
+   - slab
+     - 动态分配（memblock）
+
+先setup页表，再建立memblock：
+  - memblock的逻辑不需要处理页表切换前后不同的虚拟/物理地址映射。
+  - 但是，页表本身也无法用memblock动态分配内存。而且uefi map需要在页表切换后可以访问。（目前的实现是uefi map复制到kernel text后面）
+
+### 内存管理系统建立过程
+
+| uefi app load      | exit boot service | memblock setup | switch to new page table | goto kernel        | kernel mm init | rebuild memblock | kernel mm | setup idt |
+|--------------------|-------------------|----------------|--------------------------|--------------------|----------------|------------------|-----------|-----------|
+| uefi runtime       | ❎                |                |                          |                    |                |                  |           |           |
+|                    | 获取uefi map      |                |                          |                    |                | ❎               |           |           |
+| uefi identity map  |                   |                | ❎                       |                    |                |                  |           |           |
+| uefi app stack     |                   |                | ❎                       |                    |                |                  |           |           |
+|                    |                   |                | kernel identity map      |                    |                | ❎               |           |           |
+|                    |                   |                | kernel direct map        |                    |                |                  |           |           |
+|                    |                   |                | kernel stack             |                    |                |                  |           |           |
+| uefi app text&data |                   |                |                          | ❎                 |                |                  |           |           |
+|                    |                   |                |                          | vmkernel text&data |                |                  |           |           |
+| uefi gdt           |                   |                |                          |                    | ❎             |                  |           |           |
+|                    |                   |                |                          |                    | new gdt        |                  |           |           |
+| uefi idt           |                   |                |                          |                    |                |                  |           | ❎        |
+|                    |                   |                |                          |                    |                |                  |           | new idt   |
+
+每列表示启动的不同阶段中，分配或释放的内存区域。❎ 表示对应项不再需要，对应内存可以释放
+
+bootloader阶段：
+- uefi app load: uefi runtime加载uefi格式的内核镜像，并分配相关内存。
+- exit boot service: 获取uefi map并退出uefi boot service；
+- memblock setup：不依赖动态分配内存，memblock本身需要的内存静态编译在uefi app的静态变量；使用uefi map的信息；
+- switch to new page table: 依赖memblock分配页表页；setup direct map + identity map; 分配新kernel stack；切换到新页表和stack。
+- go to kernel: 把vmkernel从uefi加载的位置复制到新分配的地址，并跳转。vmkernel data section 包含一个setup header区域，用于从bootloader向kernel传数据。
+
+vmkernel阶段：vmkernel需要放在`VMKERNEL_ENTRY_ADDRESS` 虚拟地址处，因为链接时链接到了该地址。
+- kernel mm init: setup gdt. GDT本身的内存在kernel data section, 不需要动态分配
+- rebuild memblock：从uefi map重新setup memblock。 这里uefi map数据结构本身的地址还是物理地址，因此还需要identity map。把内存中还有用的部分标记为used（页表、kernel text/data、stack）。保留uefi map有个好处是memblock本身的内存目前是kernel data静态分配的，如果内存分段过多，导致memblock静态空间不够用，理论上可以在buddy system建立起来后再添加剩余的region。
+- kernel mm: 建立 buddy system, 使用memblock系统来分配内存; 建立slab。
+- setup idt：创建IDT。至此，所有内存都被kernel的内存管理系统自己管理。
+
 ### 早期内存管理
-我们要让kernel来管理内存。而建立内存管理系统的过程本身也需要使用内存，所以需要一个过渡的内存管理系统。
+加载内核后，内存管理需要从固件转移到kernel。
+而建立完整的内存管理系统的过程本身也需要内存分配回收，所以需要一个过渡的内存管理系统。
+不想太依赖UEFI的功能，所以setup了过渡的memblock系统。（TODO memblock的必要性）
 
 1. 物理内存模型
    把固件的物理内存转换为kernel的物理内存模型。构建memblock内存管理。
@@ -28,19 +96,19 @@
 
 5. 使用新的内存管理系统
 
-内存使用：
- - boot text: 运行在uefi初始页表；不需要保留
- - boot data(包含memblock数据)：
-   - gdt：不保留，不需要传数据？
-   - memblock数据：不保留，需要传数据 - 考虑改为动态分配
- - boot期间memblock分配的内存
-   - 页表：需保留，不需要传数据
-   - kernel stack ?
-   - kernel text & data: 需保留，不需要传数据
- - boot stack：不保留
- - kernel text & data：链接到固定地址；boot阶段不会执行，boot过程中被拷贝到kernel的链接地址；跳转完成从boot到kernel代码的切换。
- - uefi memory: 不保留，切换到vmkernel后不再使用uefi service.
+| 模块         | 条目                          | 分配     | 初始化                                  | 释放                                            |
+| memblock     | ALL_MEMBLOCKS, USED_MEMBLOCKS | binary   | boot & vmkernel: generate from uefi map | page allocatorsetup之后就没用了，但没释放。leak |
+| buddy system | MEM_ZONE                      | binary   |                                         | 不释放，一直存在                                |
+| buddy system | MEM_ZONE.mem_map (Page frams) | memblock | physical.rs                             | 不释放，一直存在                                |
 
+### 切换页表，切换内核栈
+配置好页表后，更新`cr3`寄存器以切换到新的页表。
+在切换页表前，先通过mmemblock分配器分配新的内核栈空间，在切换页表后立即切换到新内核栈。
+切换页表和切换内核栈之间不要有任何栈操作，因为我们新的页表中没有映射原来的内核栈。
+
+TODO：本节内容整理
+
+## 内存模型
 ### 物理内存模型
 flat模型
 
@@ -51,11 +119,6 @@ flat模型
 | ffff888000000000 | -119.5  TB | ffffc87fffffffff | 64 TB | direct mapping of all physical memory (page_offset_base)                                     |
 | ffffffff80000000 |            |                  |       | kernel text                                                                                  |
 | BY-UEFI-FIRMWARE |            |                  |       | kernel text and data loaded by uefi firmware. identity mapped. Deleted after vmkernel start. |
-
-### 切换页表，切换内核栈
-配置好页表后，更新`cr3`寄存器以切换到新的页表。
-在切换页表前，先通过mmemblock分配器分配新的内核栈空间，在切换页表后立即切换到新内核栈。
-切换页表和切换内核栈之间不要有任何栈操作，因为我们新的页表中没有映射原来的内核栈。
 
 ### image layout
 ```
@@ -79,21 +142,7 @@ vmkernel 通过linker script指定`.text.head` section 位于binary的最开始�
 vmkernel 编译为位置相关的elf文件，否则需要处理relocation等。
 uefi加载vmkernel.bin的位置需要和vmkernel 的编译时加载地址相同。
 
-## 内存管理
-### 内存管理形成过程
-
-| 支撑     | 功能          |
-| uefi     | memblock      |
-| memblock | pages         |
-| pages    | slab          |
-| slab     | kmalloc       |
-|          | vmalloc       |
-|          | general alloc |
-
-| 模块         | 条目                          | 分配     | 初始化                                  | 释放                                            |
-| memblock     | ALL_MEMBLOCKS, USED_MEMBLOCKS | binary   | boot & vmkernel: generate from uefi map | page allocatorsetup之后就没用了，但没释放。leak |
-| buddy system | MEM_ZONE                      | binary   |                                         | 不释放，一直存在                                |
-| buddy system | MEM_ZONE.mem_map (Page frams) | memblock | physical.rs                             | 不释放，一直存在                                |
+## kernel的内存管理
 
 ### 物理内存和页分配器
 参考linux的物理内存管理，最简实现：

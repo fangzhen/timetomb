@@ -2,6 +2,7 @@ use core::arch::asm;
 
 use timetomb::arch::x86_64::DescriptorTablePointer;
 
+
 const GDT_ENTRY_COUNT: usize = 7;
 pub static mut GDT_ENTRIES: [super::GdtEntry; GDT_ENTRY_COUNT] = [super::GdtEntry {
     limit15_0: 0,
@@ -102,10 +103,10 @@ pub fn setup_gdt() {
             limit: gdt_size as u16,
             base: &GDT_ENTRIES[0] as *const super::GdtEntry as u64,
         };
-        log::info!("GDT size: {:x}, addr: {:x}", gdt_size, {
+        /*log::info!("GDT size: {:x}, addr: {:x}", gdt_size, {
             let b = gdt_addr.base;
             b
-        });
+        });*/
         asm!(
             "lgdt [{gdt_addr}]",
             "mov ax, 0x28", // TSS low.  TODO(fangzhen) hardcode.
@@ -124,6 +125,6 @@ pub fn setup_gdt() {
             gdt_addr = in(reg) &gdt_addr,
             out("rax") _,
         );
-        log::info!("After lgdt");
+        //log::info!("After lgdt");
     }
 }

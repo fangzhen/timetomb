@@ -51,6 +51,8 @@ pub struct MemoryDescriptor {
     /// The capability attributes of this memory range.
     pub att: MemoryAttribute,
 }
+
+// TODO rename these functions
 pub fn p2l(physical: PhysicalAddr) -> LinearAddr {
     return physical + P2L_OFFSET_BASE;
 }
@@ -93,6 +95,7 @@ pub fn generate_memblock_from_uefi_map(uefi_map: &[MemoryDescriptor]) {
     }
 }
 
+// TOOD (p2l: not usable)
 pub fn print_pagetable_chain(linear: LinearAddr, cr3_addr: PhysicalAddr) {
     log::info!("Print page table entries for address: {:#x}", linear);
     let pml4_idx = (linear >> 39) & 0x1ff;
@@ -101,7 +104,8 @@ pub fn print_pagetable_chain(linear: LinearAddr, cr3_addr: PhysicalAddr) {
     let pml1_idx = (linear >> 12) & 0x1ff; //pt
 
     fn print_entry(addr: PhysicalAddr, idx: usize) -> PhysicalAddr {
-        let laddr = p2l(addr);
+        //let laddr = p2l_kernel_text(addr);
+        let laddr = addr;
         let entries = init::addr_to_page_entries(laddr);
         let entry = entries[idx];
         log::info!(

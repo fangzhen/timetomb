@@ -3,7 +3,7 @@ use core::ptr::NonNull;
 use acpi::{AcpiHandler, PhysicalMapping};
 use timetomb::{arch::x86_64::mm::p2l, kernel::mm::PhysicalAddr};
 
-use crate::{arch::x86_64::mm::CR3_ADDR, kernel::mm::paging};
+use crate::kernel::mm::paging;
 
 #[derive(Clone, Copy)]
 pub struct MemblockAcpiHandler {}
@@ -20,7 +20,7 @@ impl AcpiHandler for MemblockAcpiHandler {
             size
         );
         let va = p2l(physical_address);
-        unsafe { paging::map_region(physical_address, size, CR3_ADDR) };
+        paging::map_region(physical_address, size);
         let object = unsafe { NonNull::new_unchecked(va as *mut T) };
         return unsafe { PhysicalMapping::new(physical_address, object, size, size, *self) };
     }

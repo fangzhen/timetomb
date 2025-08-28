@@ -102,9 +102,11 @@ impl ProcessControlBlock {
         Self::new_with_mode(pid, entry_point, false)
     }
 
-    pub fn new_stub(pid: ProcessId, kernel_stack_base: usize) -> Self {
+    pub fn new_stub(pid: ProcessId) -> Self {
         let context = ProcessContext::default();
         let flags = ProcessFlags::KERNEL_THREAD;
+        let kernel_stack_size = PAGE_SIZE * 2;
+        let kernel_stack_base = Self::allocate_stack(kernel_stack_size).unwrap();
         let mm_info = MemoryInfo {
             kernel_stack_base: kernel_stack_base,
             user_stack_base: 0,
@@ -183,7 +185,7 @@ impl ProcessControlBlock {
     fn allocate_stack(size: usize) -> Result<usize, &'static str> {
         let addr = kmalloc(size);
         let stack_base = addr + size - 8; // Leave space for alignment
-        // Set up stack - align to 16 bytes and leave space for initial setup
+                                          // Set up stack - align to 16 bytes and leave space for initial setup
         let aligned_stack = (stack_base - 16) & !0xF;
         Ok(aligned_stack)
     }

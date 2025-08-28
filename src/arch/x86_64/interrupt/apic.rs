@@ -1,7 +1,6 @@
 use core::arch::asm;
 
 use crate::arch::x86_64::instruction_wrappers::{cpuid, inb, outb, rdmsr};
-use crate::arch::x86_64::mm::CR3_ADDR;
 use crate::driver::acpi as acpi_driver;
 use crate::kernel::mm::paging;
 use acpi::madt;
@@ -174,7 +173,7 @@ fn init_lapic(rsdp_addr: usize) {
     // setup LVT:
     log::info!("Local APIC Address: {:#x}", lapic_addr);
     //TODO: mmio memory space should be strong uncachable.
-    paging::map_region(lapic_addr as usize, 0x3f0, unsafe { CR3_ADDR });
+    paging::map_region(lapic_addr as usize, 0x3f0);
     lapic_addr = p2l(lapic_addr);
     unsafe { LAPIC_BASE = lapic_addr };
 
@@ -204,7 +203,7 @@ fn init_lapic(rsdp_addr: usize) {
     }
 
     //TODO size
-    paging::map_region(ioapic_addr as usize, 0x20, unsafe { CR3_ADDR });
+    paging::map_region(ioapic_addr as usize, 0x20);
     ioapic_addr = p2l(ioapic_addr);
 
     // TODO: check gsi of uart in range of this ioapic

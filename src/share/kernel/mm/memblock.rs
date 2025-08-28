@@ -43,6 +43,7 @@ pub fn get_max_addr(mt: &MemblockType) -> PhysicalAddr {
     return max_physical;
 }
 
+//TODO
 fn align_up(start: usize, align: usize) -> usize {
     return (start + align - 1) / align * align;
 }
@@ -197,6 +198,17 @@ pub fn print_memblocks() {
     unsafe {
         info!("All memory regions:");
         let regions = ALL_MEMBLOCKS.regions;
+
+        for i in 0..ALL_MEMBLOCKS.cnt {
+            let r = regions[i];
+            info!(
+                "#{}, start: {:#x},size: {:#x}",
+                i,
+                r.start,
+                r.size,
+                //regions[i].start + regions[i].size
+            );
+        }
         for i in 0..ALL_MEMBLOCKS.cnt {
             info!(
                 "#{}, start: {:#x}, end: {:#x}, size: {:#x}",

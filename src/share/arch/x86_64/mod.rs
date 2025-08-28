@@ -22,5 +22,6 @@ pub struct SetupHeader {
     pub kernel_physical: usize,
     pub kernel_size: usize,
     pub kernel_stack_physical: usize,
+    pub kernel_area_size: usize,
     pub rsdp_addr: usize,
 }

@@ -1,8 +1,5 @@
 pub mod init;
 
-use crate::arch::x86_64::mm as arch_mm;
-use timetomb::arch::x86_64::SetupHeader;
-use timetomb::arch::x86_64::mm as share_mm;
 
 pub static mut CR3_ADDR: usize = 0;
 
@@ -36,20 +33,4 @@ pub struct Tss {
 pub struct TssWithIoMap {
     pub tss: Tss,
     pub io_permission_map: [u8; 8192],
-}
-
-pub fn init_setup(setup_header: &SetupHeader) {
-    unsafe {
-        CR3_ADDR = setup_header.cr3_addr;
-    }
-    arch_mm::init::setup_gdt();
-    log::info!("After setup gdt.");
-
-    // Remove identity map.
-    // We asume the identity map is continous and has a hole after it.
-    // TODO(fangzhen) release used memory
-    let entries = share_mm::init::addr_to_page_entries(share_mm::p2l(setup_header.cr3_addr));
-    for idx in 0..setup_header.identity_map_max_idx + 1 {
-        entries[idx] = 0;
-    }
 }

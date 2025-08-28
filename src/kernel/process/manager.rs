@@ -55,9 +55,9 @@ impl ProcessManager {
             .expect("Process manager not initialized")
     }
 
-    pub fn create_stub_kernel(&mut self, kernel_stack_base: usize) -> ProcessId {
+    pub fn create_stub_kernel(&mut self) -> ProcessId {
         let pid = ProcessId(0);
-        let pcb = ProcessControlBlock::new_stub(pid, kernel_stack_base);
+        let pcb = ProcessControlBlock::new_stub(pid);
 
         self.processes.insert(pid, pcb);
         self.current_process = Some(pid);
@@ -253,7 +253,8 @@ impl ProcessManager {
         child_context.rbx = regs.rcx;
         child_context.r13 = regs as *const PtRegs as u64;
         child_context.r12 =
-            child_user_base as u64 - (parent_pcb.memory_info.user_stack_base as u64 - regs.rdx); // TODO simply regs.rdx (user rsp) when page table is setupped.
+            child_user_base as u64 - (parent_pcb.memory_info.user_stack_base as u64 - regs.rdx);
+        // TODO simply regs.rdx (user rsp) when page table is setupped.
     }
 
     /// Terminate a process

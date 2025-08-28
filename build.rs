@@ -61,4 +61,5 @@ fn main() {
 
     println!("cargo::rerun-if-changed=build.rs");
     println!("cargo::rerun-if-changed=vmkernel.lds.tpl");
+    println!("cargo::rerun-if-changed=src/head.rs.tpl");
 }

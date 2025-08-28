@@ -9,8 +9,8 @@ $(target_vm)/vmkernel: FORCE
 	cargo build --target targets/x86_64-elf.json --bin vmkernel
 
 $(vm_bin): $(target_vm)/vmkernel
-	objcopy -S -O binary target/x86_64-elf/debug/vmkernel $(vm_bin)
-
+	# Force expand .bss section in target binary.
+	objcopy -S -O binary --set-section-flags .bss=contents,data,load target/x86_64-elf/debug/vmkernel $(vm_bin)
 
 $(target_boot)/boot.efi: $(vm_bin) FORCE
 	md5sum $(vm_bin) | sed 's,^,// ,' > src/bin/boot/arch/x86_64/vmkernel.bin.hash

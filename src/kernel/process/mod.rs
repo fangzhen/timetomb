@@ -37,10 +37,10 @@ impl Default for ProcessCreateParams {
     }
 }
 
-pub fn setup_kernel_as_process(kernel_stack_base: usize) -> ProcessId {
+pub fn setup_kernel_as_process() -> ProcessId {
     let pm = ProcessManager::get();
     let mut manager = pm.lock();
-    return manager.create_stub_kernel(kernel_stack_base);
+    return manager.create_stub_kernel();
 }
 /// Create a new process
 pub fn create_process(
@@ -148,9 +148,9 @@ pub fn get_process_info(pid: ProcessId) -> Option<ProcessInfo> {
 }
 
 /// Initialize the process management subsystem.
-pub fn init(kernel_stack_base: usize) {
+pub fn init() {
     ProcessManager::init();
-    let kernel_init_pid = setup_kernel_as_process(kernel_stack_base);
+    let kernel_init_pid = setup_kernel_as_process();
     log::info!(
         "Setup initial kernel process with PID: {:?} done.",
         kernel_init_pid

@@ -12,15 +12,14 @@ use alloc::string::String;
 use arch::x86_64::mm::init::TSS_WITH_IO_MAP;
 use arch::x86_64::syscall;
 use core::panic::PanicInfo;
+use kernel::mm::paging;
 use kernel::mm::physical;
 use kernel::mm::slab;
 use kernel::process::idle;
-use timetomb::arch::x86_64::SetupHeader;
 use timetomb::arch::x86_64::mm as share_mm;
-use timetomb::arch::x86_64::mm::p2l;
+use timetomb::arch::x86_64::SetupHeader;
 use timetomb::driver::uart;
 use timetomb::kernel::logger::Logger;
-use timetomb::kernel::mm::KERNEL_STACK_SIZE;
 use timetomb::kernel::mm::memblock;
 
 pub mod arch;
@@ -32,9 +31,13 @@ pub mod library;
 static mut LOGGER: Logger = Logger { writer: None };
 unsafe extern "C" {
     static _setup_header: u8;
+    static _stack_bottom: u8;
+    static _stack_top: u8;
 }
 pub static mut SETUP_HEADER: *const SetupHeader =
     unsafe { &_setup_header as *const u8 as *const SetupHeader };
+
+pub static mut INITIAL_KERNEL_STACK: *const u8 = unsafe { &_stack_top as *const u8 };
 
 //TODO (redundant code with boot)
 fn setup_logger() {
@@ -51,32 +54,42 @@ fn setup_logger() {
 fn panic(_info: &PanicInfo) -> ! {
     loop {}
 }
+
+#[unsafe(naked)]
 #[unsafe(no_mangle)]
-pub extern "C" fn main() -> ! {
-    //TODO(fangzhen) make this global?
-    let setup_header: &SetupHeader = unsafe { SETUP_HEADER.as_ref().unwrap() };
+pub unsafe extern "C" fn main() -> ! {
+    core::arch::naked_asm!("lea rsp, [_stack_top]", "call _main")
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn _main() -> ! {
+    setup_logger();
+    arch_mm::init::setup_gdt();
+    log::info!("After setup gdt.");
+    //TODO(fangzhen) Don't use io_permission_map
     uart::init_serial_port(Some(unsafe {
         &mut *(&raw mut TSS_WITH_IO_MAP.io_permission_map)
     }));
-    setup_logger();
-    arch_mm::init_setup(setup_header);
-    log::info!("Kernel taking over!");
 
+    let setup_header: &SetupHeader = unsafe { SETUP_HEADER.as_ref().unwrap() };
     let uefi_map = unsafe {
         core::slice::from_raw_parts(
-            share_mm::p2l(setup_header.mem_desc) as *const _,
+            setup_header.mem_desc as *const _,
             setup_header.mem_desc_count,
         )
     };
+    paging::init_paging(setup_header);
+
     share_mm::print_memory_map(uefi_map);
-    // Reserve memory used by pagetable
+
     share_mm::generate_memblock_from_uefi_map(uefi_map);
-    memblock::add_used_memory(setup_header.cr3_addr, setup_header.pgtable_size, 0);
-    memblock::add_used_memory(setup_header.kernel_physical, setup_header.kernel_size, 0);
-    memblock::add_used_memory(setup_header.kernel_stack_physical, KERNEL_STACK_SIZE, 0);
+    memblock::add_used_memory(
+        setup_header.kernel_physical,
+        setup_header.kernel_area_size,
+        0,
+    );
     memblock::setup(share_mm::p2l);
     memblock::print_memblocks();
-    let kernel_stack_base = p2l(setup_header.kernel_stack_physical + KERNEL_STACK_SIZE);
 
     // memory management init
     physical::init_page_allocator(unsafe { &*(&raw const memblock::ALL_MEMBLOCKS) }, unsafe {
@@ -96,7 +109,7 @@ pub extern "C" fn main() -> ! {
     interrupt::apic::init_apic(setup_header.rsdp_addr);
 
     // Start the process management system
-    crate::kernel::process::init(kernel_stack_base);
+    crate::kernel::process::init();
     syscall::syscall_init();
     _ = crate::kernel::process::start_user_init();
     create_test_kernel_thread();
