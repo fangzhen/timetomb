@@ -32,7 +32,12 @@ fn allocate_page_table(pages: &mut PgtMemory) -> PhysicalAddr {
 }
 
 // Add kernel text mapping
-pub fn paging_kernel_text_map(physical: PhysicalAddr, size: usize) {
+pub fn paging_kernel_text_map(
+    physical: PhysicalAddr,
+    size: usize,
+    um_start: PhysicalAddr,
+    um_size: usize,
+) {
     let cr3: usize;
     unsafe {
         PGT_MEMORY.current = &_boot_pgtable as *const u8 as usize;
@@ -51,7 +56,18 @@ pub fn paging_kernel_text_map(physical: PhysicalAddr, size: usize) {
             arch_mm::init::add_page_mapping(
                 &mut || allocate_page_table(&mut *(&raw mut PGT_MEMORY)),
                 p2l_before_init,
-                addr - physical + arch_mm::VMKERNEL_ENTRY_ADDRESS,
+                addr + arch_mm::VMKERNEL_ENTRY_ADDRESS - physical,
+                addr,
+                cr3,
+            )
+        };
+    }
+    for addr in (um_start..um_start + um_size).step_by(PAGE_SIZE) {
+        unsafe {
+            arch_mm::init::add_page_mapping(
+                &mut || allocate_page_table(&mut *(&raw mut PGT_MEMORY)),
+                p2l_before_init,
+                addr + arch_mm::VMKERNEL_ENTRY_ADDRESS - physical,
                 addr,
                 cr3,
             )

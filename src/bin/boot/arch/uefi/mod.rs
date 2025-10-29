@@ -4,6 +4,7 @@ pub mod writer;
 use core::ptr;
 use log::info;
 use spec::*;
+use timetomb::kernel::mm::PAGE_SIZE;
 
 pub static mut UEFI_SYSTEM_TAB: *const spec::SystemTable = core::ptr::null_mut();
 
@@ -17,7 +18,12 @@ impl SystemTable {
         }
     }
 }
-
+pub fn allocate_pages(st: &SystemTable, mtype: MemoryType, count: usize, addr: *mut u8) -> Status {
+    let bs = unsafe { st.boot.as_ref().unwrap() };
+    unsafe {
+        return (bs.allocate_pages)(spec::AllocateType::AllocateAnyPages, mtype, count, addr);
+    }
+}
 pub fn allocate_pool<T>(
     st: &SystemTable,
     mtype: MemoryType,
@@ -48,7 +54,13 @@ pub fn get_memory_map(st: &SystemTable) -> (MemoryMapKey, &[MemoryDescriptor]) {
             (bs.get_memory_map)(&mut size, map, &mut key, &mut desc_size, &mut desc_version);
             size += desc_size * 2;
             allocate_pool(st, MemoryType::EfiLoaderData, size, &mut map);
-            allocate_pool(st, MemoryType::EfiLoaderData, size, &mut descriptors_raw);
+            let count = (size + PAGE_SIZE - 1) / PAGE_SIZE;
+            allocate_pages(
+                st,
+                MemoryType::EfiLoaderData,
+                count,
+                &mut descriptors_raw as *mut _ as *mut u8,
+            );
 
             if (bs.get_memory_map)(&mut size, map, &mut key, &mut desc_size, &mut desc_version) == 0
             {

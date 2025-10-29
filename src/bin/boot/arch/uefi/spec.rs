@@ -74,7 +74,7 @@ pub struct BootServices {
         alloc_ty: AllocateType,
         mem_ty: MemoryType,
         count: usize,
-        addr: &mut usize,
+        addr: *mut u8,
     ) -> Status,
     pub free_pages: unsafe extern "efiapi" fn(addr: u64, pages: usize) -> Status,
     pub get_memory_map: unsafe extern "efiapi" fn(

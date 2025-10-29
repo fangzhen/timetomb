@@ -77,7 +77,12 @@ pub fn init_paging(setup_header: &SetupHeader) -> PhysicalAddr {
         )
     };
     let cr3_addr = init_page_mapping(uefi_map);
-    paging_kernel_text_map(setup_header.kernel_physical, setup_header.kernel_area_size);
+    paging_kernel_text_map(
+        setup_header.kernel_physical,
+        setup_header.kernel_size,
+        setup_header.mem_desc_physical,
+        setup_header.mem_desc_size,
+    );
     unsafe {
         core::arch::asm!(
             "mov rax, 0x000ffffffffff000",
@@ -145,13 +150,29 @@ fn paging_direct_map(
 }
 
 // Add kernel text mapping
-pub fn paging_kernel_text_map(physical: PhysicalAddr, size: usize) {
+pub fn paging_kernel_text_map(
+    physical: PhysicalAddr,
+    size: usize,
+    um_start: PhysicalAddr,
+    um_size: usize,
+) {
     for addr in (physical..physical + size).step_by(PAGE_SIZE) {
         unsafe {
             arch_mm::init::add_page_mapping(
                 &mut || allocate_page_table(&mut *(&raw mut PGT_MEMORY)),
                 p2l_kernel_text,
-                addr - physical + arch_mm::VMKERNEL_ENTRY_ADDRESS,
+                addr + arch_mm::VMKERNEL_ENTRY_ADDRESS - physical,
+                addr,
+                CR3_ADDR,
+            )
+        };
+    }
+    for addr in (um_start..um_start + um_size).step_by(PAGE_SIZE) {
+        unsafe {
+            arch_mm::init::add_page_mapping(
+                &mut || allocate_page_table(&mut *(&raw mut PGT_MEMORY)),
+                p2l_kernel_text,
+                addr + arch_mm::VMKERNEL_ENTRY_ADDRESS - physical,
                 addr,
                 CR3_ADDR,
             )

@@ -83,11 +83,6 @@ pub extern "C" fn _main() -> ! {
     share_mm::print_memory_map(uefi_map);
 
     share_mm::generate_memblock_from_uefi_map(uefi_map);
-    memblock::add_used_memory(
-        setup_header.kernel_physical,
-        setup_header.kernel_area_size,
-        0,
-    );
     memblock::setup(share_mm::p2l);
     memblock::print_memblocks();
 
