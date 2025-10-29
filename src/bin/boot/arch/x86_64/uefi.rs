@@ -89,11 +89,11 @@ pub extern "efiapi" fn efi_main(hdr: spec::Handle, system: *const spec::SystemTa
     for i in 0..kernel_size {
         unsafe { *((kernel_physical + i) as *mut u8) = *((vmkernel_start + i) as *const u8) };
     }
-    boot_arch_mm::paging_kernel_text_map(kernel_physical, kernel_size, um_start, um_size);
+    boot_arch_mm::paging_kernel_text_map(kernel_physical, kernel_size);
     unsafe {
         SETUP_HEADER.kernel_physical = kernel_physical;
         SETUP_HEADER.kernel_size = kernel_size;
-        SETUP_HEADER.mem_desc = um_start + arch_mm::VMKERNEL_ENTRY_ADDRESS - kernel_physical;
+        SETUP_HEADER.mem_desc = um_start;
         SETUP_HEADER.mem_desc_count = um_len;
         SETUP_HEADER.mem_desc_physical = um_start;
         SETUP_HEADER.mem_desc_size = um_size;

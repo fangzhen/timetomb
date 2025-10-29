@@ -72,13 +72,13 @@ pub extern "C" fn _main() -> ! {
     }));
 
     let setup_header: &SetupHeader = unsafe { SETUP_HEADER.as_ref().unwrap() };
+    paging::init_paging(setup_header);
     let uefi_map = unsafe {
         core::slice::from_raw_parts(
-            setup_header.mem_desc as *const _,
+            share_mm::p2l(setup_header.mem_desc_physical) as *const _,
             setup_header.mem_desc_count,
         )
     };
-    paging::init_paging(setup_header);
 
     share_mm::print_memory_map(uefi_map);
 
