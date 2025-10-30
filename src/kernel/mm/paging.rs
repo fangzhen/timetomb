@@ -47,8 +47,6 @@ pub struct PgtMemory {
     pub current: usize,
 }
 
-// TODO maybe not needed
-static mut CR3_ADDR: usize = 0;
 pub static mut PGT_MEMORY: PgtMemory = PgtMemory { max: 0, current: 0 };
 pub fn kernel_text_p2l(physical: PhysicalAddr) -> LinearAddr {
     return unsafe { physical + VMKERNEL_TEXT_OFFSET };
@@ -77,7 +75,11 @@ pub fn init_paging(setup_header: &SetupHeader) -> PhysicalAddr {
         )
     };
     let cr3_addr = init_page_mapping(uefi_map);
-    paging_kernel_text_map(setup_header.kernel_physical, setup_header.kernel_size);
+    paging_kernel_text_map(
+        setup_header.kernel_physical,
+        setup_header.kernel_size,
+        cr3_addr,
+    );
     unsafe {
         core::arch::asm!(
             "mov rax, 0x000ffffffffff000",
@@ -115,15 +117,13 @@ pub fn init_page_mapping(uefi_map: &[MemoryDescriptor]) -> PhysicalAddr {
     unsafe {
         PGT_MEMORY.current = pgt_addr;
         let cr3_addr = allocate_page_table(&mut *(&raw mut PGT_MEMORY));
-        CR3_ADDR = cr3_addr;
         paging_direct_map(
             || allocate_page_table(&mut *(&raw mut PGT_MEMORY)),
             max_physical,
             cr3_addr,
         );
+        return cr3_addr;
     }
-
-    return unsafe { CR3_ADDR };
 }
 
 // Mapping whole physical memory to virtual address with offset P2L_OFFSET_BASE
@@ -144,7 +144,7 @@ fn paging_direct_map(
 }
 
 // Add kernel text mapping
-pub fn paging_kernel_text_map(physical: PhysicalAddr, size: usize) {
+pub fn paging_kernel_text_map(physical: PhysicalAddr, size: usize, cr3_addr: PhysicalAddr) {
     for addr in (physical..physical + size).step_by(PAGE_SIZE) {
         unsafe {
             arch_mm::init::add_page_mapping(
@@ -152,7 +152,7 @@ pub fn paging_kernel_text_map(physical: PhysicalAddr, size: usize) {
                 kernel_text_p2l,
                 addr + arch_mm::VMKERNEL_ENTRY_ADDRESS - physical,
                 addr,
-                CR3_ADDR,
+                cr3_addr,
             )
         };
     }

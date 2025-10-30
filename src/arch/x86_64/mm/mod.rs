@@ -2,8 +2,6 @@ use timetomb::kernel::mm::{LinearAddr, PhysicalAddr};
 
 pub mod init;
 
-pub static mut CR3_ADDR: usize = 0;
-
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct GdtEntry {
