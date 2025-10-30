@@ -50,9 +50,6 @@ pub fn generate_memblock_from_physical_map(uefi_map: &[MemoryDescriptor]) {
                 // e.g. kernel itself is loaded by EFI firmware with type EfiLoaderCode.
                 // UEFI system table resides in EfiRuntimeServicesData.
                 add_used_memory(d.phys_start, d.page_count * PAGE_SIZE, flag);
-            } else if d.phys_start == 0 {
-                // TODO(fangzhen) mark address 0 as allocated to avoid allocate later.
-                add_used_memory(0, PAGE_SIZE, flag);
             }
         }
     }
