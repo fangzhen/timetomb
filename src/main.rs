@@ -9,9 +9,11 @@ use crate::arch::x86_64::interrupt;
 use crate::arch::x86_64::mm as arch_mm;
 use crate::kernel::process;
 use alloc::string::String;
+use arch::x86_64::mm::direct_map_p2l;
 use arch::x86_64::mm::init::TSS_WITH_IO_MAP;
 use arch::x86_64::syscall;
 use core::panic::PanicInfo;
+use kernel::mm::memblock;
 use kernel::mm::paging;
 use kernel::mm::physical;
 use kernel::mm::slab;
@@ -20,7 +22,6 @@ use timetomb::arch::x86_64::mm as share_mm;
 use timetomb::arch::x86_64::SetupHeader;
 use timetomb::driver::uart;
 use timetomb::kernel::logger::Logger;
-use timetomb::kernel::mm::memblock;
 
 pub mod arch;
 pub mod driver;
@@ -75,15 +76,14 @@ pub extern "C" fn _main() -> ! {
     paging::init_paging(setup_header);
     let uefi_map = unsafe {
         core::slice::from_raw_parts(
-            share_mm::p2l(setup_header.mem_desc_physical) as *const _,
+            direct_map_p2l(setup_header.mem_desc_physical) as *const _,
             setup_header.mem_desc_count,
         )
     };
 
-    share_mm::print_memory_map(uefi_map);
+    share_mm::print_physical_map(uefi_map);
 
-    share_mm::generate_memblock_from_uefi_map(uefi_map);
-    memblock::setup(share_mm::p2l);
+    memblock::generate_memblock_from_physical_map(uefi_map);
     memblock::print_memblocks();
 
     // memory management init

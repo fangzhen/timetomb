@@ -2,9 +2,8 @@ pub mod init;
 
 use crate::arch::x86_64::ffi_shared;
 use crate::kernel::mm::PAGE_SIZE;
-use crate::kernel::mm::{self, LinearAddr, PhysicalAddr};
+use crate::kernel::mm::{LinearAddr, PhysicalAddr};
 pub const VMKERNEL_ENTRY_ADDRESS: usize = ffi_shared::VMKERNEL_ENTRY_ADDRESS;
-pub const P2L_OFFSET_BASE: usize = 0xffff888000000000;
 /* page entry bitflags */
 const PAGE_BIT_P_PRESENT: usize = 1 << 0;
 const PAGE_BIT_RW_WRITABLE: usize = 1 << 1;
@@ -52,16 +51,7 @@ pub struct MemoryDescriptor {
     pub att: MemoryAttribute,
 }
 
-// TODO rename these functions
-pub fn p2l(physical: PhysicalAddr) -> LinearAddr {
-    return physical + P2L_OFFSET_BASE;
-}
-
-pub fn l2p(linear: LinearAddr) -> PhysicalAddr {
-    return linear - P2L_OFFSET_BASE;
-}
-
-pub fn print_memory_map(map: &[MemoryDescriptor]) {
+pub fn print_physical_map(map: &[MemoryDescriptor]) {
     for (_, &d) in map.iter().enumerate() {
         log::info!(
             "UEFI memorymap. Type: {:?} PhysicalStart: {:#x} PhysicalEnd: {:#x} VirtualStart: {:#x} Pages: {} Attribute: {}",
@@ -75,37 +65,23 @@ pub fn print_memory_map(map: &[MemoryDescriptor]) {
     }
 }
 
-pub fn generate_memblock_from_uefi_map(uefi_map: &[MemoryDescriptor]) {
-    for d in uefi_map {
-        if d.mem_type != MemoryType::EfiReservedMemoryType {
-            // TODO(fangzhen) EfiReservedMemoryType uses physical address with high address
-            // in qemu
-            let flag = mm::PAGE_FLAG_PHYSICAL;
-            mm::memblock::add_memory(d.phys_start, d.page_count * PAGE_SIZE, flag);
-            if d.mem_type != MemoryType::EfiConventionalMemory {
-                // Simple set all memory except EfiConventionalMemory as used.
-                // e.g. kernel itself is loaded by EFI firmware with type EfiLoaderCode.
-                // UEFI system table resides in EfiRuntimeServicesData.
-                mm::memblock::add_used_memory(d.phys_start, d.page_count * PAGE_SIZE, flag);
-            } else if d.phys_start == 0 {
-                // TODO(fangzhen) mark address 0 as allocated to avoid allocate later.
-                mm::memblock::add_used_memory(0, PAGE_SIZE, flag);
-            }
-        }
-    }
-}
-
-// TOOD (p2l: not usable)
-pub fn print_pagetable_chain(linear: LinearAddr, cr3_addr: PhysicalAddr) {
+pub fn print_pagetable_chain(
+    p2l: fn(PhysicalAddr) -> LinearAddr,
+    linear: LinearAddr,
+    cr3_addr: PhysicalAddr,
+) {
     log::info!("Print page table entries for address: {:#x}", linear);
     let pml4_idx = (linear >> 39) & 0x1ff;
     let pml3_idx = (linear >> 30) & 0x1ff; //pdp
     let pml2_idx = (linear >> 21) & 0x1ff; //pd
     let pml1_idx = (linear >> 12) & 0x1ff; //pt
 
-    fn print_entry(addr: PhysicalAddr, idx: usize) -> PhysicalAddr {
-        //let laddr = p2l_kernel_text(addr);
-        let laddr = addr;
+    fn print_entry(
+        p2l: fn(PhysicalAddr) -> LinearAddr,
+        addr: PhysicalAddr,
+        idx: usize,
+    ) -> PhysicalAddr {
+        let laddr = p2l(addr);
         let entries = init::addr_to_page_entries(laddr);
         let entry = entries[idx];
         log::info!(
@@ -116,8 +92,8 @@ pub fn print_pagetable_chain(linear: LinearAddr, cr3_addr: PhysicalAddr) {
         return entry & PAGE_ADDR_MASK;
     }
 
-    let pml3_addr = print_entry(cr3_addr, pml4_idx);
-    let pml2_addr = print_entry(pml3_addr, pml3_idx);
-    let pml1_addr = print_entry(pml2_addr, pml2_idx);
-    let _phy_addr = print_entry(pml1_addr, pml1_idx);
+    let pml3_addr = print_entry(p2l, cr3_addr, pml4_idx);
+    let pml2_addr = print_entry(p2l, pml3_addr, pml3_idx);
+    let pml1_addr = print_entry(p2l, pml2_addr, pml2_idx);
+    let _phy_addr = print_entry(p2l, pml1_addr, pml1_idx);
 }

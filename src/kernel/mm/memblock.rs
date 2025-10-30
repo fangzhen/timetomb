@@ -1,8 +1,12 @@
 use core::cmp::min;
 
 use log::info;
+use timetomb::{
+    arch::x86_64::mm::{MemoryDescriptor, MemoryType},
+    kernel::mm::{PhysicalAddr, PAGE_FLAG_PHYSICAL, PAGE_SIZE},
+};
 
-use crate::kernel::mm::{LinearAddr, PhysicalAddr};
+use crate::arch::x86_64::mm::direct_map_p2l;
 
 const MEMORY_REGION_COUNT: usize = 128;
 
@@ -34,7 +38,25 @@ pub static mut USED_MEMBLOCKS: MemblockType = MemblockType {
     }; MEMORY_REGION_COUNT],
 };
 
-static mut P2L: Option<fn(LinearAddr) -> PhysicalAddr> = None;
+pub fn generate_memblock_from_physical_map(uefi_map: &[MemoryDescriptor]) {
+    for d in uefi_map {
+        if d.mem_type != MemoryType::EfiReservedMemoryType {
+            // TODO(fangzhen) EfiReservedMemoryType uses physical address with high address
+            // in qemu
+            let flag = PAGE_FLAG_PHYSICAL;
+            add_memory(d.phys_start, d.page_count * PAGE_SIZE, flag);
+            if d.mem_type != MemoryType::EfiConventionalMemory {
+                // Simple set all memory except EfiConventionalMemory as used.
+                // e.g. kernel itself is loaded by EFI firmware with type EfiLoaderCode.
+                // UEFI system table resides in EfiRuntimeServicesData.
+                add_used_memory(d.phys_start, d.page_count * PAGE_SIZE, flag);
+            } else if d.phys_start == 0 {
+                // TODO(fangzhen) mark address 0 as allocated to avoid allocate later.
+                add_used_memory(0, PAGE_SIZE, flag);
+            }
+        }
+    }
+}
 
 pub fn get_max_addr(mt: &MemblockType) -> PhysicalAddr {
     let mem_regions = mt.regions;
@@ -88,7 +110,7 @@ fn find_free_block(size: usize, align: usize) -> PhysicalAddr {
 }
 
 pub fn allocate_memory(start: usize, size: usize, align: usize, flag: u32) -> usize {
-    return unsafe { P2L.unwrap() }(allocate_physical_memory(start, size, align, flag));
+    return direct_map_p2l(allocate_physical_memory(start, size, align, flag));
 }
 pub fn allocate_physical_memory(
     mut start: usize,
@@ -231,8 +253,4 @@ pub fn print_memblocks() {
             );
         }
     }
-}
-
-pub fn setup(p2l: fn(LinearAddr) -> PhysicalAddr) {
-    unsafe { P2L = Some(p2l) }
 }

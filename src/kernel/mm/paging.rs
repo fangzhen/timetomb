@@ -5,10 +5,10 @@ use timetomb::arch::x86_64::mm::MemoryType;
 use timetomb::arch::x86_64::mm as arch_mm;
 use timetomb::arch::x86_64::mm::init::add_page_mapping;
 use timetomb::arch::x86_64::mm::init::memzero;
-use timetomb::arch::x86_64::mm::p2l;
 use timetomb::arch::x86_64::SetupHeader;
 use timetomb::kernel::mm::{LinearAddr, PhysicalAddr, PAGE_SIZE};
 
+use crate::arch::x86_64::mm::direct_map_p2l;
 use crate::library::bitops;
 static mut VMKERNEL_TEXT_OFFSET: usize = 0;
 
@@ -30,11 +30,11 @@ pub fn map_region(paddr: PhysicalAddr, size: usize) {
             &mut || {
                 let paddr =
                     physical::MEM_ZONE.page_ref_to_paddr(physical::allocate_pages(1).unwrap());
-                memzero(p2l(paddr), PAGE_SIZE);
+                memzero(direct_map_p2l(paddr), PAGE_SIZE);
                 return paddr;
             },
-            p2l,
-            p2l(addr),
+            direct_map_p2l,
+            direct_map_p2l(addr),
             addr,
             pml4_addr,
         );
@@ -50,7 +50,7 @@ pub struct PgtMemory {
 // TODO maybe not needed
 static mut CR3_ADDR: usize = 0;
 pub static mut PGT_MEMORY: PgtMemory = PgtMemory { max: 0, current: 0 };
-pub fn p2l_kernel_text(physical: PhysicalAddr) -> LinearAddr {
+pub fn kernel_text_p2l(physical: PhysicalAddr) -> LinearAddr {
     return unsafe { physical + VMKERNEL_TEXT_OFFSET };
 }
 
@@ -110,7 +110,6 @@ pub fn init_page_mapping(uefi_map: &[MemoryDescriptor]) -> PhysicalAddr {
             break;
         }
     }
-    //print_memory_map(uefi_map);
     let max_physical = last.phys_start + last.page_count * PAGE_SIZE;
     let pgt_addr = unsafe { &_pgtable_start as *const u8 as usize };
     unsafe {
@@ -136,8 +135,8 @@ fn paging_direct_map(
     for addr in (0..max_addr).step_by(PAGE_SIZE) {
         arch_mm::init::add_page_mapping(
             &mut pgt_allocator,
-            p2l_kernel_text,
-            addr + arch_mm::P2L_OFFSET_BASE,
+            kernel_text_p2l,
+            direct_map_p2l(addr),
             addr,
             cr3_addr,
         );
@@ -150,7 +149,7 @@ pub fn paging_kernel_text_map(physical: PhysicalAddr, size: usize) {
         unsafe {
             arch_mm::init::add_page_mapping(
                 &mut || allocate_page_table(&mut *(&raw mut PGT_MEMORY)),
-                p2l_kernel_text,
+                kernel_text_p2l,
                 addr + arch_mm::VMKERNEL_ENTRY_ADDRESS - physical,
                 addr,
                 CR3_ADDR,

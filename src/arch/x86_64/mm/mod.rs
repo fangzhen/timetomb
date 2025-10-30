@@ -1,5 +1,6 @@
-pub mod init;
+use timetomb::kernel::mm::{LinearAddr, PhysicalAddr};
 
+pub mod init;
 
 pub static mut CR3_ADDR: usize = 0;
 
@@ -33,4 +34,14 @@ pub struct Tss {
 pub struct TssWithIoMap {
     pub tss: Tss,
     pub io_permission_map: [u8; 8192],
+}
+
+pub const P2L_OFFSET_BASE: usize = 0xffff888000000000;
+
+pub fn direct_map_p2l(physical: PhysicalAddr) -> LinearAddr {
+    return physical + P2L_OFFSET_BASE;
+}
+
+pub fn direct_map_l2p(linear: LinearAddr) -> PhysicalAddr {
+    return linear - P2L_OFFSET_BASE;
 }

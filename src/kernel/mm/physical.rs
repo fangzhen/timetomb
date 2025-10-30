@@ -3,16 +3,11 @@ use core::{
     cmp::min,
     slice::{from_raw_parts, from_raw_parts_mut},
 };
-use intrusive_collections::{LinkedList, LinkedListLink, intrusive_adapter};
-use timetomb::{
-    arch::x86_64::mm::{l2p, p2l},
-    kernel::mm::{
-        LinearAddr, PAGE_SIZE, PhysicalAddr,
-        memblock::{self, MemblockType},
-    },
-};
+use intrusive_collections::{intrusive_adapter, LinkedList, LinkedListLink};
+use timetomb::kernel::mm::{LinearAddr, PhysicalAddr, PAGE_SIZE};
 
-use crate::library::bitops;
+use crate::{arch::x86_64::mm::direct_map_l2p, kernel::mm::memblock};
+use crate::{arch::x86_64::mm::direct_map_p2l, library::bitops};
 
 use super::slab::KmemCache;
 
@@ -112,10 +107,10 @@ impl Zone {
         return self.page_ref_to_pfn(p) * PAGE_SIZE;
     }
     pub fn page_ref_to_addr(&self, p: &Page) -> LinearAddr {
-        return p2l(self.page_ref_to_pfn(p) * PAGE_SIZE);
+        return direct_map_p2l(self.page_ref_to_pfn(p) * PAGE_SIZE);
     }
     pub fn addr_to_page_ref(&self, addr: LinearAddr) -> &'static Page {
-        return self.pfn_to_page_ref(paddr_to_pfn(l2p(addr)));
+        return self.pfn_to_page_ref(paddr_to_pfn(direct_map_l2p(addr)));
     }
     pub fn page_ref_to_pfn(&self, p: &Page) -> usize {
         self.get_inner().page_ref_to_pfn(p)
@@ -123,7 +118,11 @@ impl Zone {
     pub fn pfn_to_page_ref(&self, pfn: usize) -> &'static Page {
         self.get_inner().pfn_to_page_ref(pfn)
     }
-    pub fn init_page_allocator(&self, all_mb: &MemblockType, used_mb: &MemblockType) {
+    pub fn init_page_allocator(
+        &self,
+        all_mb: &memblock::MemblockType,
+        used_mb: &memblock::MemblockType,
+    ) {
         log::info!("Init page allocator with memblock regions.");
         let all_regions = all_mb.regions;
         let last_region = all_regions[all_mb.cnt - 1];
@@ -328,7 +327,7 @@ fn find_parent_pfn(pfn: usize, order: usize) -> usize {
 }
 
 ///Construcct buddy system from memblock regions.
-pub fn init_page_allocator(all_mb: &MemblockType, used_mb: &MemblockType) {
+pub fn init_page_allocator(all_mb: &memblock::MemblockType, used_mb: &memblock::MemblockType) {
     MEM_ZONE.init_page_allocator(all_mb, used_mb);
 }
 

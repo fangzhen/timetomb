@@ -81,7 +81,7 @@ pub extern "efiapi" fn efi_main(hdr: spec::Handle, system: *const spec::SystemTa
     // including memory management, text output etc.
 
     info!("Memory mapping after exit boot service:");
-    arch_mm::print_memory_map(uefi_map);
+    arch_mm::print_physical_map(uefi_map);
     let um_len = uefi_map.len();
     let um_start = uefi_map.as_ptr() as usize;
     let um_size = um_len * size_of::<MemoryDescriptor>();

@@ -1,5 +1,3 @@
-pub mod memblock;
-
 pub const PAGE_SIZE: usize = 4096;
 pub const KERNEL_STACK_SIZE: usize = PAGE_SIZE * 32;
 pub type PhysicalAddr = usize;

@@ -1,10 +1,10 @@
 use core::arch::asm;
 
 use crate::arch::x86_64::instruction_wrappers::{cpuid, inb, outb, rdmsr};
+use crate::arch::x86_64::mm::direct_map_p2l;
 use crate::driver::acpi as acpi_driver;
 use crate::kernel::mm::paging;
 use acpi::madt;
-use timetomb::arch::x86_64::mm::p2l;
 
 const CPUID_APIC_FLAG: u32 = 1 << 9;
 const IA32_APIC_BASE_MSR: u32 = 0x1b;
@@ -174,7 +174,7 @@ fn init_lapic(rsdp_addr: usize) {
     log::info!("Local APIC Address: {:#x}", lapic_addr);
     //TODO: mmio memory space should be strong uncachable.
     paging::map_region(lapic_addr as usize, 0x3f0);
-    lapic_addr = p2l(lapic_addr);
+    lapic_addr = direct_map_p2l(lapic_addr);
     unsafe { LAPIC_BASE = lapic_addr };
 
     // We masked all 8259 PIC IRQs, as a result, LINT0 is not used.
@@ -204,7 +204,7 @@ fn init_lapic(rsdp_addr: usize) {
 
     //TODO size
     paging::map_region(ioapic_addr as usize, 0x20);
-    ioapic_addr = p2l(ioapic_addr);
+    ioapic_addr = direct_map_p2l(ioapic_addr);
 
     // TODO: check gsi of uart in range of this ioapic
     let uart_tbl = (IOAPIC_IRQ_OFFSET + uart_gsi) as u64;
