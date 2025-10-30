@@ -6,7 +6,7 @@ use timetomb::{
     kernel::mm::{PhysicalAddr, PAGE_FLAG_PHYSICAL, PAGE_SIZE},
 };
 
-use crate::arch::x86_64::mm::direct_map_p2l;
+use crate::{arch::x86_64::mm::direct_map_p2l, library::bitops::align_ceil};
 
 const MEMORY_REGION_COUNT: usize = 128;
 
@@ -62,10 +62,6 @@ pub fn get_max_addr(mt: &MemblockType) -> PhysicalAddr {
     return max_physical;
 }
 
-//TODO
-fn align_up(start: usize, align: usize) -> usize {
-    return (start + align - 1) / align * align;
-}
 fn find_free_block(size: usize, align: usize) -> PhysicalAddr {
     let a_cnt = unsafe { ALL_MEMBLOCKS.cnt };
     let u_cnt = unsafe { USED_MEMBLOCKS.cnt };
@@ -77,7 +73,7 @@ fn find_free_block(size: usize, align: usize) -> PhysicalAddr {
     let mut ur_end;
     while ia < a_cnt {
         let ar = unsafe { &(*a_regions)[ia] };
-        let mut start_c = align_up(ar.start, align);
+        let mut start_c = align_ceil(ar.start, align);
         while {
             if iu < u_cnt {
                 let ur = unsafe { &(*u_regions)[iu] };
@@ -93,7 +89,7 @@ fn find_free_block(size: usize, align: usize) -> PhysicalAddr {
                 return start_c;
             }
 
-            start_c = align_up(ur_end, align);
+            start_c = align_ceil(ur_end, align);
 
             if ur_start < ar.start + ar.size {
                 iu += 1;
