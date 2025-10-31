@@ -1,7 +1,7 @@
 use crate::arch::x86_64::mm as arch_mm;
-use crate::arch::x86_64::process::context_switch_asm::{fork_ret, save_restore_context};
+use crate::arch::x86_64::process::context::ProcessContext;
+use crate::arch::x86_64::process::context_switch::{fork_ret, save_restore_context};
 use crate::arch::x86_64::syscall::pt_regs::PtRegs;
-use crate::kernel::process::ProcessContext;
 
 use super::{ProcessControlBlock, ProcessId, ProcessState};
 use super::{RoundRobinScheduler, Scheduler};
@@ -10,20 +10,6 @@ use spin::Once;
 
 /// Global process manager instance
 static PROCESS_MANAGER: Once<spin::Mutex<ProcessManager>> = Once::new();
-
-#[derive(Debug, PartialEq)]
-pub enum ProcessSwitchResult {
-    /// Context switch completed successfully
-    Success,
-    /// No process to switch to
-    NoProcess,
-    /// Current process not found
-    CurrentProcessNotFound,
-    /// Next process not found
-    NextProcessNotFound,
-    /// Context switch failed
-    Failed,
-}
 
 /// Process manager that handles all process-related operations
 pub struct ProcessManager {
@@ -55,14 +41,15 @@ impl ProcessManager {
             .expect("Process manager not initialized")
     }
 
-    pub fn create_stub_kernel(&mut self) -> ProcessId {
+    pub fn setup_kernel_as_process(&mut self) -> ProcessId {
         let pid = ProcessId(0);
-        let pcb = ProcessControlBlock::new_stub(pid);
+        let mut pcb = ProcessControlBlock::new_kernel(pid, 0).unwrap();
+        pcb.state = ProcessState::Running;
 
         self.processes.insert(pid, pcb);
         self.current_process = Some(pid);
 
-        log::info!("Created new stub kernel process 0",);
+        log::info!("Switched init kernel as process {}", pid);
         return pid;
     }
     /// Create a new user process
@@ -70,8 +57,7 @@ impl ProcessManager {
         let pid = self.next_pid;
         self.next_pid.0 += 1;
 
-        let mut pcb = ProcessControlBlock::new(pid, entry_point)?;
-        pcb.set_state(ProcessState::Ready);
+        let pcb = ProcessControlBlock::new_user(pid, entry_point)?;
 
         self.processes.insert(pid, pcb);
         self.scheduler.add_process(pid);
@@ -89,8 +75,7 @@ impl ProcessManager {
         let pid = self.next_pid;
         self.next_pid.0 += 1;
 
-        let mut pcb = ProcessControlBlock::new_kernel(pid, entry_point)?;
-        pcb.set_state(ProcessState::Ready);
+        let pcb = ProcessControlBlock::new_kernel(pid, entry_point)?;
 
         self.processes.insert(pid, pcb);
         self.scheduler.add_process(pid);
@@ -124,7 +109,7 @@ impl ProcessManager {
     }
 
     /// Switch to the next scheduled process
-    pub fn schedule_next(&mut self, new_state: ProcessState) -> ProcessSwitchResult {
+    pub fn schedule_next(&mut self, new_state: ProcessState) {
         let current = self.current_process();
 
         if let Some(current_pid) = current {
@@ -132,8 +117,8 @@ impl ProcessManager {
                 self.scheduler.add_process(current_pid);
             }
             let current_pcb = self.get_process_mut(current_pid).unwrap();
-            if current_pcb.state() == ProcessState::Running {
-                current_pcb.set_state(new_state);
+            if current_pcb.state == ProcessState::Running {
+                current_pcb.state = new_state;
             }
         }
         // Get next process from scheduler and switch to it
@@ -143,33 +128,31 @@ impl ProcessManager {
 
         let next_pcb = self.get_process_mut(next_pid).unwrap();
 
-        match next_pcb.state() {
+        match next_pcb.state {
             ProcessState::Ready => {
-                next_pcb.set_state(ProcessState::Running);
+                next_pcb.state = ProcessState::Running;
                 // For ready processes, we're resuming from where they left off
             }
             _ => {
                 log::warn!(
                     "Attempting to schedule process {:?} in state {:?}",
                     next_pid,
-                    next_pcb.state()
+                    next_pcb.state
                 );
-                next_pcb.set_state(ProcessState::Running);
+                next_pcb.state = ProcessState::Running;
             }
         }
 
         // TODO check next pid is not current pid
-        let next_context_ptr = next_pcb.context() as *const ProcessContext;
+        let next_context_ptr = &next_pcb.context as *const ProcessContext;
         let kernel_rsp = next_pcb.memory_info.kernel_stack_base;
         // This call will not return - it jumps directly to the next process
         let current_context_ptr;
         if current.is_none() {
             current_context_ptr = 0 as *mut ProcessContext;
         } else {
-            current_context_ptr = (self
-                .get_process_mut(current.unwrap())
-                .unwrap()
-                .context_mut()) as *mut ProcessContext;
+            current_context_ptr = &mut (self.get_process_mut(current.unwrap()).unwrap().context)
+                as *mut ProcessContext;
         }
         unsafe {
             // update tss.rsp0 TODO(fangzhen) only needed for user process?
@@ -177,18 +160,6 @@ impl ProcessManager {
             arch_mm::init::TSS_WITH_IO_MAP.tss.rsps[1] = (kernel_rsp >> 32) as u32;
             save_restore_context(current_context_ptr, next_context_ptr);
         }
-
-        ProcessSwitchResult::Success
-    }
-
-    /// Yield CPU voluntarily
-    pub fn yield_cpu(&mut self) -> ProcessSwitchResult {
-        self.schedule_next(ProcessState::Ready)
-    }
-
-    /// Block current process
-    pub fn block_current(&mut self, _reason: &str) -> ProcessSwitchResult {
-        self.schedule_next(ProcessState::Blocked)
     }
 
     /// Set the current running process
@@ -212,8 +183,8 @@ impl ProcessManager {
 
         // Clone the parent's PCB
         let mut child_pcb = ProcessControlBlock::fork_from(child_pid, parent_pcb)?;
-        child_pcb.set_parent_pid(current_pid);
-        child_pcb.set_state(ProcessState::Ready);
+        child_pcb.parent_pid = Some(current_pid);
+        child_pcb.state = ProcessState::Ready;
 
         log::info!(
             "Forked process {:?} from parent {:?}",
@@ -221,7 +192,7 @@ impl ProcessManager {
             current_pid
         );
         // Set return value for child process (0)
-        let child_context = child_pcb.context_mut();
+        let child_context = &mut child_pcb.context;
         child_context.rax = 0;
         let parent_pcb_ptr = parent_pcb as *const ProcessControlBlock;
 
@@ -231,12 +202,12 @@ impl ProcessManager {
 
         let cp = self.get_process_mut(child_pid).unwrap();
         let child_pcb_ptr = cp as *mut ProcessControlBlock;
-        unsafe { ProcessManager::fix_context(child_pcb_ptr, parent_pcb_ptr, regs) };
+        unsafe { ProcessManager::fix_fork_context(child_pcb_ptr, parent_pcb_ptr, regs) };
 
         Ok(child_pid)
     }
 
-    unsafe extern "C" fn fix_context(
+    unsafe extern "C" fn fix_fork_context(
         child_pcb_ptr: *mut ProcessControlBlock,
         parent_pcb_ptr: *const ProcessControlBlock,
         regs: &PtRegs,
@@ -245,7 +216,7 @@ impl ProcessManager {
         let parent_pcb = unsafe { parent_pcb_ptr.as_ref().unwrap() };
         let child_kernel_base = child_pcb.memory_info.kernel_stack_base;
         let child_user_base = child_pcb.memory_info.user_stack_base;
-        let child_context = child_pcb.context_mut();
+        let child_context = &mut child_pcb.context;
         unsafe { save_restore_context(child_context, 0 as *const ProcessContext) };
 
         child_context.rsp = child_kernel_base as u64;
@@ -260,7 +231,7 @@ impl ProcessManager {
     /// Terminate a process
     pub fn terminate_process(&mut self, pid: ProcessId) -> Result<(), &'static str> {
         if let Some(mut pcb) = self.processes.remove(&pid) {
-            pcb.set_state(ProcessState::Terminated);
+            pcb.state = ProcessState::Terminated;
             self.scheduler.remove_process(pid);
 
             if self.current_process == Some(pid) {

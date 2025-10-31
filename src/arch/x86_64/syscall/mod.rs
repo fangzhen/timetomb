@@ -4,7 +4,7 @@ use crate::kernel::process;
 use core::arch::asm;
 use core::arch::naked_asm;
 
-use super::process::context_switch_asm::process_end;
+use super::process::context_switch::process_end;
 
 pub mod pt_regs;
 use pt_regs::PtRegs;

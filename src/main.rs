@@ -136,10 +136,6 @@ fn create_test_kernel_thread() {
     ) {
         Ok(pid) => {
             log::info!("Created test kernel thread with PID: {:?}", pid);
-
-            if let Some(info) = process::get_process_info(pid) {
-                log::info!("Process info: {}", info);
-            }
         }
         Err(e) => {
             log::error!("Failed to create test kernel thread: {}", e);

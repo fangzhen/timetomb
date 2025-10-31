@@ -1,27 +1,22 @@
 //! Low-level assembly context switching functions for x86_64
 //!
-//! This module provides the core assembly routines for saving and restoring
+//! This module provides the core routines for saving and restoring
 //! CPU context during process switches.
 
 use crate::{
     arch::x86_64::{syscall::syscall_to_kernelspace, syscall::sysret_to_userspace},
-    kernel::process::{ProcessContext, ProcessManager},
+    kernel::process::ProcessManager,
 };
 use core::arch::naked_asm;
 
+use super::context::ProcessContext;
+
 /// Save current context, restore next context and switch to it.
 ///
-/// This function saves the current CPU state to the provided context structure.
-/// This function loads the CPU state from the provided context and jumps to it.
-///
 /// # Safety
-/// This function is unsafe because it directly accesses memory through a raw pointer.
-/// The caller must ensure that `context` points to valid memory.
-/// This function is unsafe because it directly manipulates CPU registers and jumps
-/// to arbitrary code. The caller must ensure that:
-/// - The context contains valid register values
-/// - The RIP points to valid executable code
-/// - The RSP points to valid stack memory
+/// This function is unsafe because it directly accesses memory through a raw pointer,
+/// manipulates CPU registers and jumps to arbitrary code.
+/// - The caller must ensure that `context` points to valid memory.
 #[unsafe(naked)]
 pub unsafe extern "C" fn save_restore_context(
     current_context: *mut ProcessContext,
@@ -121,13 +116,13 @@ pub unsafe extern "C" fn save_restore_context(
     );
 }
 
-/// Entry wrapper for new processes
+/// Entry wrapper for new kernel processes
 ///
-/// This function is called when a new process is first scheduled.
-/// It receives the actual entry point in RBX and jumps to it.
+/// This function is called when a new kernel process is first scheduled.
+/// It jumps to the actual entry point in RBX.
 /// This simulates the process being resumed from a context switch.
 #[unsafe(naked)]
-pub unsafe extern "C" fn process_entry_wrapper() {
+pub unsafe extern "C" fn kernel_process_entry_wrapper() {
     naked_asm!(
         // Call simulate_schedule_end to ensure process manager is unlocked
         "call simulate_schedule_end",
@@ -142,11 +137,9 @@ pub unsafe extern "C" fn process_entry_wrapper() {
         "2: jmp 2b" // Infinite loop as fallback
     );
 }
-/// Entry wrapper for new processes
+/// Entry wrapper for new user processes
 ///
 /// This function is called when a new process is first scheduled.
-/// It receives the actual entry point in RBX and jumps to it.
-/// This simulates the process being resumed from a context switch.
 #[unsafe(naked)]
 pub unsafe extern "C" fn user_process_entry_wrapper() {
     naked_asm!(

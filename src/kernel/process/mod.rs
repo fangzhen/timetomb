@@ -1,18 +1,15 @@
 //! Process management module
 
-pub mod context;
 pub mod manager;
 pub mod pcb;
 pub mod scheduler;
 
-pub use context::ProcessContext;
 pub use manager::ProcessManager;
 pub use pcb::{ProcessControlBlock, ProcessId, ProcessState};
 pub use scheduler::{RoundRobinScheduler, Scheduler};
 
 use crate::arch::x86_64::syscall::syscall_to_kernelspace;
 use alloc::string::String;
-use alloc::string::ToString;
 
 use crate::arch::x86_64::syscall::pt_regs::PtRegs;
 
@@ -40,7 +37,7 @@ impl Default for ProcessCreateParams {
 pub fn setup_kernel_as_process() -> ProcessId {
     let pm = ProcessManager::get();
     let mut manager = pm.lock();
-    return manager.create_stub_kernel();
+    return manager.setup_kernel_as_process();
 }
 /// Create a new process
 pub fn create_process(
@@ -65,15 +62,15 @@ pub fn create_process(
     // Set optional parameters
     if let Some(pcb) = manager.get_process_mut(pid) {
         if let Some(name) = params.name {
-            pcb.set_name(name);
+            pcb.name = name;
         }
 
         if let Some(parent_pid) = params.parent_pid {
-            pcb.set_parent_pid(parent_pid);
+            pcb.parent_pid = Some(parent_pid);
         }
 
         // Set process to ready state
-        pcb.set_state(ProcessState::Ready);
+        pcb.state = ProcessState::Ready;
     }
 
     Ok(pid)
@@ -96,55 +93,13 @@ pub fn terminate_process(pid: ProcessId) -> Result<(), &'static str> {
 /// Yield CPU to next process
 pub fn yield_current() {
     let pm = ProcessManager::get();
-    pm.lock().yield_cpu();
+    pm.lock().schedule_next(ProcessState::Ready);
 }
 
 /// Force schedule next process
 pub fn schedule_next() {
     let pm = ProcessManager::get();
     pm.lock().schedule_next(ProcessState::Ready);
-}
-
-/// Process information structure for external use
-#[derive(Debug, Clone)]
-pub struct ProcessInfo {
-    pub pid: ProcessId,
-    pub parent_pid: Option<ProcessId>,
-    pub state: ProcessState,
-    pub name: String,
-    pub cpu_time: u64,
-    pub time_slice: u32,
-}
-
-impl core::fmt::Display for ProcessInfo {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(
-            f,
-            "{}[{}]: {} - {} (CPU: {}, Slice: {})",
-            self.name,
-            self.pid,
-            self.state,
-            self.parent_pid
-                .map_or("no parent".to_string(), |p| p.to_string()),
-            self.cpu_time,
-            self.time_slice
-        )
-    }
-}
-
-/// Get process information
-pub fn get_process_info(pid: ProcessId) -> Option<ProcessInfo> {
-    let pm = ProcessManager::get();
-    let manager = pm.lock();
-
-    manager.get_process(pid).map(|pcb| ProcessInfo {
-        pid: pcb.pid(),
-        parent_pid: pcb.parent_pid(),
-        state: pcb.state(),
-        name: pcb.name().to_string(),
-        cpu_time: pcb.cpu_time(),
-        time_slice: pcb.time_slice(),
-    })
 }
 
 /// Initialize the process management subsystem.
