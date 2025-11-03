@@ -1,4 +1,4 @@
-use crate::arch::x86_64::mm as arch_mm;
+use crate::arch::x86_64::mm::{self as arch_mm};
 use crate::arch::x86_64::process::context::ProcessContext;
 use crate::arch::x86_64::process::context_switch::{fork_ret, save_restore_context};
 use crate::arch::x86_64::syscall::pt_regs::PtRegs;
@@ -53,7 +53,7 @@ impl ProcessManager {
         return pid;
     }
     /// Create a new user process
-    pub fn create_process(&mut self, entry_point: usize) -> Result<ProcessId, &'static str> {
+    pub fn create_user_process(&mut self, entry_point: usize) -> Result<ProcessId, &'static str> {
         let pid = self.next_pid;
         self.next_pid.0 += 1;
 
@@ -62,11 +62,7 @@ impl ProcessManager {
         self.processes.insert(pid, pcb);
         self.scheduler.add_process(pid);
 
-        log::info!(
-            "Created new user process {:?} with entry point 0x{:x}",
-            pid,
-            entry_point
-        );
+        log::info!("Created new user process {:?}", pid);
         Ok(pid)
     }
 
@@ -191,10 +187,6 @@ impl ProcessManager {
             child_pid,
             current_pid
         );
-        // Set return value for child process (0)
-        let child_context = &mut child_pcb.context;
-        child_context.rax = 0;
-        let parent_pcb_ptr = parent_pcb as *const ProcessControlBlock;
 
         // Add child to processes and scheduler
         self.processes.insert(child_pid, child_pcb);
@@ -202,30 +194,25 @@ impl ProcessManager {
 
         let cp = self.get_process_mut(child_pid).unwrap();
         let child_pcb_ptr = cp as *mut ProcessControlBlock;
-        unsafe { ProcessManager::fix_fork_context(child_pcb_ptr, parent_pcb_ptr, regs) };
+        unsafe { ProcessManager::fix_fork_context(child_pcb_ptr, regs) };
 
         Ok(child_pid)
     }
 
-    unsafe extern "C" fn fix_fork_context(
-        child_pcb_ptr: *mut ProcessControlBlock,
-        parent_pcb_ptr: *const ProcessControlBlock,
-        regs: &PtRegs,
-    ) {
+    /// save current context to child context and tweak for child.
+    unsafe extern "C" fn fix_fork_context(child_pcb_ptr: *mut ProcessControlBlock, regs: &PtRegs) {
         let child_pcb = unsafe { child_pcb_ptr.as_mut().unwrap() };
-        let parent_pcb = unsafe { parent_pcb_ptr.as_ref().unwrap() };
         let child_kernel_base = child_pcb.memory_info.kernel_stack_base;
-        let child_user_base = child_pcb.memory_info.user_stack_base;
         let child_context = &mut child_pcb.context;
-        unsafe { save_restore_context(child_context, 0 as *const ProcessContext) };
 
-        child_context.rsp = child_kernel_base as u64;
+        let child_pt_regs_addr = child_kernel_base - size_of::<PtRegs>();
+        let child_pt_regs = unsafe { (child_pt_regs_addr as *mut PtRegs).as_mut().unwrap() };
+        *child_pt_regs = *regs;
+        child_pt_regs.rax = 0; // fork returns 0 for child process
+
+        child_context.r13 = child_pt_regs_addr as u64;
+        child_context.rsp = child_pt_regs_addr as u64; // child_pt_regs is on stack.
         child_context.rip = fork_ret as u64;
-        child_context.rbx = regs.rcx;
-        child_context.r13 = regs as *const PtRegs as u64;
-        child_context.r12 =
-            child_user_base as u64 - (parent_pcb.memory_info.user_stack_base as u64 - regs.rdx);
-        // TODO simply regs.rdx (user rsp) when page table is setupped.
     }
 
     /// Terminate a process

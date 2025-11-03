@@ -9,6 +9,8 @@ use super::process::context_switch::process_end;
 pub mod pt_regs;
 use pt_regs::PtRegs;
 
+pub const DEFAULT_USER_FLAGS: u64 = 0x0200;
+
 const MSR_IA32_STAR: u32 = 0xc0000081;
 const MSR_IA32_LSTAR: u32 = 0xc0000082;
 const MSR_IA32_FMASK: u32 = 0xc0000084;
@@ -137,15 +139,14 @@ pub fn syscall_to_kernelspace(num: usize) -> i64 {
 }
 
 /// TODO: duplicate with syscall_entrypoint
-pub fn sysret_to_userspace(uf_addr: usize, stack_addr: usize, regs: &PtRegs) {
+pub fn sysret_to_userspace(regs: &PtRegs) {
     unsafe {
-        //TODO(fangzhen) which registers should be restored?
         asm!(
             "mov rax, [rdi + 0x00]",
             "mov rbx, [rdi + 0x08]",
             "mov rcx, [rdi + 0x10]",
             "mov rdx, [rdi + 0x18]",
-            "mov rsi, [rdi + 0x20]",
+            "mov rsp, [rdi + 0x38]",
             "mov r8,  [rdi + 0x40]",
             "mov r9,  [rdi + 0x48]",
             "mov r10, [rdi + 0x50]",
@@ -154,20 +155,10 @@ pub fn sysret_to_userspace(uf_addr: usize, stack_addr: usize, regs: &PtRegs) {
             "mov r13, [rdi + 0x68]",
             "mov r14, [rdi + 0x70]",
             "mov r15, [rdi + 0x78]",
+            "mov rsp, rdx",  // restore user rsp
+            "sysretq",             // to user space!
             in("rdi") regs,
-        );
-        let rsp0 = &mut arch_mm::init::TSS_WITH_IO_MAP.tss.rsps[0] as *mut u32;
-        asm!("mov [r10], rsp",      // save kernel rsp TODO(fangzhen) seems unnecessary.
-             "mov rcx, rdi",        // first argument, new instruction pointer
-             "mov rsp, rsi",        // second argument, new stack pointer
-             "mov r11, 0x0200",     // rflags: IF TODO(fangzhen): restore
-             "sysretq",             // to user space!
-             in("rdi") uf_addr,
-             in("rsi") stack_addr,
-             in("rax") 0, // TODO hardcoded return 0
-             in("r10") rsp0,
-             out("r11") _,
-             out("rcx") _,
+            out("r11") _,
         );
     };
 }

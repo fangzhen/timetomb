@@ -3,14 +3,15 @@ use timetomb::arch::x86_64::mm::MemoryDescriptor;
 use timetomb::arch::x86_64::mm::MemoryType;
 // TODO x86_64
 use timetomb::arch::x86_64::mm as arch_mm;
-use timetomb::arch::x86_64::mm::init::add_page_mapping;
-use timetomb::arch::x86_64::mm::init::memzero;
+use timetomb::arch::x86_64::mm::add_page_mapping;
+use timetomb::arch::x86_64::mm::memzero;
 use timetomb::arch::x86_64::SetupHeader;
 use timetomb::kernel::mm::{LinearAddr, PhysicalAddr, PAGE_SIZE};
 
 use crate::arch::x86_64::mm::direct_map_p2l;
 use crate::library::bitops;
 static mut VMKERNEL_TEXT_OFFSET: usize = 0;
+pub static mut INIT_PT_ADDR: usize = 0;
 
 use super::physical;
 unsafe extern "C" {
@@ -56,7 +57,7 @@ pub fn kernel_text_p2l(physical: PhysicalAddr) -> LinearAddr {
 fn allocate_page_table(pages: &mut PgtMemory) -> PhysicalAddr {
     let linear_addr = pages.current;
     pages.current += PAGE_SIZE;
-    arch_mm::init::memzero(linear_addr, PAGE_SIZE);
+    arch_mm::memzero(linear_addr, PAGE_SIZE);
     let physical_addr = unsafe { linear_addr - VMKERNEL_TEXT_OFFSET };
     return physical_addr;
 }
@@ -101,6 +102,7 @@ pub fn init_paging(setup_header: &SetupHeader) -> PhysicalAddr {
 
     log::info!("We are using new page table now!");
 
+    unsafe { INIT_PT_ADDR = cr3_addr };
     return cr3_addr;
 }
 
@@ -133,7 +135,7 @@ fn paging_direct_map(
     cr3_addr: PhysicalAddr,
 ) {
     for addr in (0..max_addr).step_by(PAGE_SIZE) {
-        arch_mm::init::add_page_mapping(
+        arch_mm::add_page_mapping(
             &mut pgt_allocator,
             kernel_text_p2l,
             direct_map_p2l(addr),
@@ -147,7 +149,7 @@ fn paging_direct_map(
 pub fn paging_kernel_text_map(physical: PhysicalAddr, size: usize, cr3_addr: PhysicalAddr) {
     for addr in (physical..physical + size).step_by(PAGE_SIZE) {
         unsafe {
-            arch_mm::init::add_page_mapping(
+            arch_mm::add_page_mapping(
                 &mut || allocate_page_table(&mut *(&raw mut PGT_MEMORY)),
                 kernel_text_p2l,
                 addr + arch_mm::VMKERNEL_ENTRY_ADDRESS - physical,

@@ -3,9 +3,7 @@
 //! This module handles saving and restoring CPU context during process switches.
 //! The context includes all CPU registers that need to be preserved.
 
-use crate::arch::x86_64::process::context_switch::{
-    kernel_process_entry_wrapper, user_process_entry_wrapper,
-};
+use timetomb::kernel::mm::PhysicalAddr;
 
 /// CPU context for x86_64 architecture
 /// This structure represents the complete CPU state that needs to be saved/restored
@@ -56,23 +54,18 @@ impl ProcessContext {
     /// It prepares the stack and registers for the initial jump to the process entry point.
     pub fn new(
         entry_point: usize,
-        user_mode: bool,
-        kernel_stack_base: usize,
-        user_stack_base: usize,
+        rip: usize,
+        kernel_stack_laddr: usize,
+        user_stack_laddr: usize,
+        pt_base: PhysicalAddr,
     ) -> Self {
         let mut context = Self::default();
-        context.rsp = kernel_stack_base as u64;
-        context.r12 = user_stack_base as u64;
+        context.rsp = kernel_stack_laddr as u64;
+        context.r12 = user_stack_laddr as u64;
         context.r13 = &context as *const Self as u64; // fake pt_regs
 
-        // For new processes, we need to set up the context so that when restore_context
-        // is called, it jumps to a wrapper function that will then call the actual entry point.
         // This simulates the process being "resumed" from a previous context switch.
-        if user_mode {
-            context.rip = user_process_entry_wrapper as usize as u64;
-        } else {
-            context.rip = kernel_process_entry_wrapper as usize as u64;
-        }
+        context.rip = rip as u64;
 
         // Store the actual entry point in a register that the wrapper can use.
         // Save it in callee-saved register (rbx).
@@ -90,10 +83,7 @@ impl ProcessContext {
         context.fs = 0x10;
         context.gs = 0x10;
 
-        // TODO
-        unsafe {
-            core::arch::asm!( "mov {}, cr3", out(reg) context.cr3);
-        };
+        context.cr3 = pt_base as u64;
         return context;
     }
 }

@@ -27,7 +27,7 @@ pub static mut PGT_MEMORY: PgtMemory = PgtMemory { current: 0 };
 fn allocate_page_table(pages: &mut PgtMemory) -> PhysicalAddr {
     let physical_addr = pages.current;
     pages.current += PAGE_SIZE;
-    arch_mm::init::memzero(p2l_before_init(physical_addr), PAGE_SIZE);
+    arch_mm::memzero(p2l_before_init(physical_addr), PAGE_SIZE);
     return physical_addr;
 }
 
@@ -48,7 +48,7 @@ pub fn paging_kernel_text_map(physical: PhysicalAddr, size: usize) {
     }
     for addr in (physical..physical + size).step_by(PAGE_SIZE) {
         unsafe {
-            arch_mm::init::add_page_mapping(
+            arch_mm::add_page_mapping(
                 &mut || allocate_page_table(&mut *(&raw mut PGT_MEMORY)),
                 p2l_before_init,
                 addr + arch_mm::VMKERNEL_ENTRY_ADDRESS - physical,

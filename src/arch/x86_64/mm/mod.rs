@@ -43,3 +43,5 @@ pub fn direct_map_p2l(physical: PhysicalAddr) -> LinearAddr {
 pub fn direct_map_l2p(linear: LinearAddr) -> PhysicalAddr {
     return linear - P2L_OFFSET_BASE;
 }
+
+pub const USER_STACK_OFFSET_BASE: usize = 0x7ffffffff000;

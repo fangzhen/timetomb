@@ -145,17 +145,15 @@ pub unsafe extern "C" fn user_process_entry_wrapper() {
     naked_asm!(
         // Call simulate_schedule_end to ensure process manager is unlocked
         "call simulate_schedule_end",
-        // param to sysret_to_user
-        "mov rdi, rbx",  // user entry point
-        "xor rbp, rbp", // Clear frame pointer
-        "push rbp",     // Push null frame pointer (for stack unwinding)
-        "and r12, -16", // user stack rsp is stored in R12, align to 16 bytes
-        "mov rbp, r12", // Set up frame pointer
-        "lea rax, [3f]", // user process return to label 3: process_end() syscall
-        "sub r12, 8",
-        "mov [r12], rax",
-        "mov rsi, r12",
-        "mov rdx, r13",
+
+        // setup user stack to make user process return to label 3: process_end() syscall
+        "lea rax, [3f]",
+        "mov rdx, [r13 + 0x18]",
+        "sub rdx, 8",
+        "mov [rdx], rax",
+        "mov [r13 + 0x18], rdx",
+
+        "mov rdi, r13",
         "call {sysret_to_user}",
         "3:",
         "mov rdi, 1",  // process exit
@@ -172,9 +170,7 @@ pub unsafe extern "C" fn fork_ret() {
         // Call simulate_schedule_end to ensure process manager is unlocked
         "call simulate_schedule_end",
         // param to sysret_to_user
-        "mov rdi, rbx",  // user entry point
-        "mov rsi, r12",
-        "mov rdx, r13",
+        "mov rdi, r13",
         "call {sysret_to_user}",
         "2: jmp 2b", // Infinite loop as fallback
         sysret_to_user = sym sysret_to_userspace,

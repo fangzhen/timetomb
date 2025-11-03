@@ -3,12 +3,30 @@
 //! The PCB contains all the information needed to manage a process,
 //! including its state, context, memory information, and scheduling data.
 
-use crate::{arch::x86_64::process::context::ProcessContext, kernel::mm::slab::kmalloc};
+use crate::{
+    arch::x86_64::{
+        mm::{direct_map_l2p, direct_map_p2l, P2L_OFFSET_BASE, USER_STACK_OFFSET_BASE},
+        process::{
+            context::ProcessContext,
+            context_switch::{kernel_process_entry_wrapper, user_process_entry_wrapper},
+        },
+        syscall::{pt_regs::PtRegs, DEFAULT_USER_FLAGS},
+    },
+    kernel::mm::{paging::INIT_PT_ADDR, physical},
+};
 use alloc::string::String;
 use bitflags::bitflags;
 use core::fmt;
-use timetomb::kernel::mm::PAGE_SIZE;
+use timetomb::{
+    arch::x86_64::{
+        ffi_shared::VMKERNEL_ENTRY_ADDRESS,
+        mm::{add_page_mapping, addr_to_page_entries, memzero},
+    },
+    kernel::mm::{PhysicalAddr, PAGE_SIZE},
+};
 
+pub const KERNEL_STACK_PAGES: usize = 2;
+pub const USER_STACK_PAGES: usize = 2;
 /// Process identifier type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ProcessId(pub u64);
@@ -70,48 +88,34 @@ pub struct ProcessControlBlock {
 pub struct MemoryInfo {
     pub kernel_stack_base: usize,
     pub user_stack_base: usize,
+    pub user_stack_pages: usize,
 }
 
 impl ProcessControlBlock {
-    /// Create a new PCB for a user process
-    pub fn new_user(pid: ProcessId, entry_point: usize) -> Result<Self, &'static str> {
-        // Allocate stack space
-        let kernel_stack_size = PAGE_SIZE * 2;
-        let user_stack_size = PAGE_SIZE * 2;
-        let kernel_stack_base = Self::allocate_stack(kernel_stack_size).unwrap();
-        let user_stack_base = Self::allocate_stack(user_stack_size).unwrap();
-        let flags = ProcessFlags::empty();
-        let mm_info = MemoryInfo {
-            kernel_stack_base,
-            user_stack_base,
-        };
-
-        let context = ProcessContext::new(entry_point, true, kernel_stack_base, user_stack_base);
-
-        Ok(Self {
-            pid,
-            parent_pid: None,
-            state: ProcessState::Ready,
-            context,
-            name: alloc::format!("user_process_{}", pid.0),
-            flags: flags,
-            memory_info: mm_info,
-        })
+    /// Allocate stack space for the process
+    fn allocate_stack(count: usize) -> Result<usize, &'static str> {
+        let page = physical::allocate_pages(count).unwrap();
+        let addr = physical::MEM_ZONE.page_ref_to_addr(page);
+        Ok(addr + count * PAGE_SIZE)
     }
 
     /// Create a new PCB for a kernel process
     pub fn new_kernel(pid: ProcessId, entry_point: usize) -> Result<Self, &'static str> {
-        let kernel_stack_size = PAGE_SIZE * 2;
-        let kernel_stack_base = Self::allocate_stack(kernel_stack_size).unwrap();
+        let kernel_stack_base = Self::allocate_stack(KERNEL_STACK_PAGES).unwrap();
         let user_stack_base = 0;
         let flags = ProcessFlags::KERNEL_THREAD;
 
         let mm_info = MemoryInfo {
             kernel_stack_base,
             user_stack_base,
+            user_stack_pages: 0,
         };
 
-        let context = ProcessContext::new(entry_point, false, kernel_stack_base, user_stack_base);
+        let rip = kernel_process_entry_wrapper as usize;
+
+        let context = ProcessContext::new(entry_point, rip, kernel_stack_base, 0, unsafe {
+            INIT_PT_ADDR
+        });
         Ok(Self {
             pid,
             parent_pid: None,
@@ -123,14 +127,78 @@ impl ProcessControlBlock {
         })
     }
 
-    /// Allocate stack space for the process
-    fn allocate_stack(size: usize) -> Result<usize, &'static str> {
-        let addr = kmalloc(size);
-        let stack_base = addr + size - 8; // Leave space for alignment
+    fn prepare_user_vm(user_stack_pages: usize) -> (PhysicalAddr, MemoryInfo) {
+        fn alloc_pt() -> PhysicalAddr {
+            let page = physical::allocate_pages(1).unwrap();
+            let laddr = physical::MEM_ZONE.page_ref_to_addr(page);
+            memzero(laddr, PAGE_SIZE);
+            let paddr = physical::MEM_ZONE.page_ref_to_paddr(page);
+            paddr
+        }
+        let new_pt_base = alloc_pt();
+        // Add kernel direct map and kernel text to user pagetable.
+        let direct_idx = P2L_OFFSET_BASE >> 39 & 0x1ff;
+        let vmkernel_idx = VMKERNEL_ENTRY_ADDRESS >> 39 & 0x1ff;
+        let user_pt = addr_to_page_entries(direct_map_p2l(new_pt_base));
+        let kernel_pt = addr_to_page_entries(direct_map_p2l(unsafe { INIT_PT_ADDR }));
+        user_pt[direct_idx] = kernel_pt[direct_idx];
+        user_pt[vmkernel_idx] = kernel_pt[vmkernel_idx];
 
-        // Set up stack - align to 16 bytes and leave space for initial setup
-        let aligned_stack = (stack_base - 16) & !0xF;
-        Ok(aligned_stack)
+        let kernel_stack_base = Self::allocate_stack(KERNEL_STACK_PAGES).unwrap();
+        let user_stack_base = Self::allocate_stack(USER_STACK_PAGES).unwrap();
+        let us_physical = direct_map_l2p(user_stack_base);
+        let mm_info = MemoryInfo {
+            kernel_stack_base,
+            user_stack_base,
+            user_stack_pages,
+        };
+
+        for i in 0..user_stack_pages {
+            let laddr = USER_STACK_OFFSET_BASE - PAGE_SIZE * (i + 1);
+            let paddr = us_physical - PAGE_SIZE * (i + 1);
+            add_page_mapping(
+                &mut || alloc_pt(),
+                direct_map_p2l,
+                laddr,
+                paddr,
+                new_pt_base,
+            );
+        }
+        return (new_pt_base, mm_info);
+    }
+
+    /// Create a new PCB for a user process
+    pub fn new_user(pid: ProcessId, entry_point: usize) -> Result<Self, &'static str> {
+        let (pt_base, mm_info) = Self::prepare_user_vm(2);
+        let rip = user_process_entry_wrapper as usize;
+        let mut context = ProcessContext::new(
+            entry_point,
+            rip,
+            mm_info.kernel_stack_base,
+            USER_STACK_OFFSET_BASE,
+            pt_base,
+        );
+
+        let child_pt_regs_addr = mm_info.kernel_stack_base - size_of::<PtRegs>();
+        let child_pt_regs = unsafe { (child_pt_regs_addr as *mut PtRegs).as_mut().unwrap() };
+        *child_pt_regs = PtRegs::default();
+        child_pt_regs.rcx = entry_point as u64; // user entry point
+        child_pt_regs.rdx = USER_STACK_OFFSET_BASE as u64;
+        child_pt_regs.r11 = DEFAULT_USER_FLAGS;
+
+        context.r13 = child_pt_regs_addr as u64; //  pt_regs
+        context.rsp = child_pt_regs_addr as u64; // kernel stack
+
+        let flags = ProcessFlags::empty();
+        Ok(Self {
+            pid,
+            parent_pid: None,
+            state: ProcessState::Ready,
+            context,
+            name: alloc::format!("user_process_{}", pid.0),
+            flags: flags,
+            memory_info: mm_info,
+        })
     }
 
     /// Create a new PCB by forking from an existing process
@@ -138,35 +206,22 @@ impl ProcessControlBlock {
         child_pid: ProcessId,
         parent: &ProcessControlBlock,
     ) -> Result<Self, &'static str> {
-        //let parent_kernel_base = parent.memory_info.kernel_stack_base;
-        //let parent_user_base = parent.memory_info.user_stack_base;
-        // Allocate stack space
-        let kernel_stack_size = PAGE_SIZE * 2;
-        let user_stack_size = PAGE_SIZE * 2;
+        let user_stack_pages = parent.memory_info.user_stack_pages;
+        let user_stack_size = user_stack_pages * PAGE_SIZE;
+        let (pt_base, mm_info) = Self::prepare_user_vm(user_stack_pages);
 
-        let kernel_stack_base =
-            Self::allocate_stack(kernel_stack_size).unwrap() + kernel_stack_size;
-        let user_stack_base;
-        if parent.flags.contains(ProcessFlags::KERNEL_THREAD) {
-            user_stack_base = 0;
-        } else {
-            user_stack_base = Self::allocate_stack(user_stack_size).unwrap() + user_stack_size;
-            // TODO(fangzhen) We should map parent and child stack to same virtual address.
-            unsafe {
-                core::ptr::copy(
-                    (parent.memory_info.user_stack_base - user_stack_size) as *const u8,
-                    (user_stack_base - user_stack_size) as *mut u8,
-                    user_stack_size,
-                )
-            };
+        // copy parent user stack to child stack.
+        unsafe {
+            core::ptr::copy(
+                (parent.memory_info.user_stack_base - user_stack_size) as *const u8,
+                (mm_info.user_stack_base - user_stack_size) as *mut u8,
+                user_stack_size,
+            );
         }
-        let mm_info = MemoryInfo {
-            kernel_stack_base,
-            user_stack_base,
-        };
 
         // Clone the parent's context
-        let child_context = parent.context.clone();
+        let mut child_context = parent.context.clone();
+        child_context.cr3 = pt_base as u64;
 
         Ok(Self {
             pid: child_pid,

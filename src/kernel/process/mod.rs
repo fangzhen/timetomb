@@ -40,38 +40,10 @@ pub fn setup_kernel_as_process() -> ProcessId {
     return manager.setup_kernel_as_process();
 }
 /// Create a new process
-pub fn create_process(
-    entry_point: usize,
-    name: Option<String>,
-    user_mode: bool,
-) -> Result<ProcessId, &'static str> {
+pub fn create_kernel_process(entry_point: usize) -> Result<ProcessId, &'static str> {
     let pm = ProcessManager::get();
     let mut manager = pm.lock();
-    let params = ProcessCreateParams {
-        entry_point: entry_point,
-        name,
-        parent_pid: None,
-    };
-    let pid;
-    if user_mode {
-        pid = manager.create_process(params.entry_point)?;
-    } else {
-        pid = manager.create_kernel_process(params.entry_point)?;
-    }
-
-    // Set optional parameters
-    if let Some(pcb) = manager.get_process_mut(pid) {
-        if let Some(name) = params.name {
-            pcb.name = name;
-        }
-
-        if let Some(parent_pid) = params.parent_pid {
-            pcb.parent_pid = Some(parent_pid);
-        }
-
-        // Set process to ready state
-        pcb.state = ProcessState::Ready;
-    }
+    let pid = manager.create_kernel_process(entry_point)?;
 
     Ok(pid)
 }
@@ -120,8 +92,11 @@ pub fn idle() -> ! {
 }
 
 /// Start the first user process (init process)
-pub fn start_user_init() -> Result<(), &'static str> {
-    let init_pid = create_process(init_process as usize, Some(String::from("init")), true)?;
+pub fn create_user_init() -> Result<(), &'static str> {
+    let pm = ProcessManager::get();
+    let mut manager = pm.lock();
+
+    let init_pid = manager.create_user_process(init_process as usize)?;
     log::info!("Init process created with PID: {:?}", init_pid);
     Ok(())
 }
@@ -129,10 +104,9 @@ pub fn start_user_init() -> Result<(), &'static str> {
 /// The init process - first user process
 fn init_process() {
     log::info!("Init process started!");
-
     let pid = syscall_to_kernelspace(2); // fork
     if pid != 0 {
-        log::info!("Created Child user process: {}", pid);
+        log::info!("Created child user process: {}", pid);
         for i in 0..10 {
             log::info!("Init process running, counter: {}", i);
             syscall_to_kernelspace(3); // yield process

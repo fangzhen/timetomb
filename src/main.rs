@@ -8,7 +8,6 @@ use crate::arch::x86_64::instruction_wrappers;
 use crate::arch::x86_64::interrupt;
 use crate::arch::x86_64::mm as arch_mm;
 use crate::kernel::process;
-use alloc::string::String;
 use arch::x86_64::mm::direct_map_p2l;
 use arch::x86_64::mm::init::TSS_WITH_IO_MAP;
 use arch::x86_64::syscall;
@@ -106,7 +105,8 @@ pub extern "C" fn _main() -> ! {
     // Start the process management system
     crate::kernel::process::init();
     syscall::syscall_init();
-    _ = crate::kernel::process::start_user_init();
+    log::info!("Syscall init done");
+    _ = crate::kernel::process::create_user_init();
     create_test_kernel_thread();
     process::yield_current();
     idle();
@@ -129,11 +129,7 @@ fn test_mm() {
 fn create_test_kernel_thread() {
     log::info!("Testing process management system");
 
-    match process::create_process(
-        test_kernel_thread_entry as usize,
-        Some(String::from("test_process")),
-        false,
-    ) {
+    match process::create_kernel_process(test_kernel_thread_entry as usize) {
         Ok(pid) => {
             log::info!("Created test kernel thread with PID: {:?}", pid);
         }
