@@ -125,7 +125,7 @@ pub unsafe extern "C" fn save_restore_context(
 pub unsafe extern "C" fn kernel_process_entry_wrapper() {
     naked_asm!(
         // Call simulate_schedule_end to ensure process manager is unlocked
-        "call simulate_schedule_end",
+        "call {simulate_schedule_end}",
         // RBX contains the actual entry point
         // Set up a clean stack frame and jump to it.
         "xor rbp, rbp", // Clear frame pointer
@@ -133,8 +133,10 @@ pub unsafe extern "C" fn kernel_process_entry_wrapper() {
         "and rsp, -16", // align rsp to 16 bytes
         "mov rbp, rsp", // Set up frame pointer
         "call rbx",
-        "call process_end",
-        "2: jmp 2b" // Infinite loop as fallback
+        "call {process_end}",
+        "2: jmp 2b", // Infinite loop as fallback
+        process_end = sym process_end,
+        simulate_schedule_end = sym simulate_schedule_end,
     );
 }
 /// Entry wrapper for new user processes
@@ -144,7 +146,7 @@ pub unsafe extern "C" fn kernel_process_entry_wrapper() {
 pub unsafe extern "C" fn user_process_entry_wrapper() {
     naked_asm!(
         // Call simulate_schedule_end to ensure process manager is unlocked
-        "call simulate_schedule_end",
+        "call {simulate_schedule_end}",
 
         // setup user stack to make user process return to label 3: process_end() syscall
         "lea rax, [3f]",
@@ -162,6 +164,7 @@ pub unsafe extern "C" fn user_process_entry_wrapper() {
         "2: jmp 2b",   // Infinite loop as fallback
         sysret_to_user = sym sysret_to_userspace,
         syscall_to_kernel = sym syscall_to_kernelspace,
+        simulate_schedule_end = sym simulate_schedule_end,
     );
 }
 
@@ -169,17 +172,17 @@ pub unsafe extern "C" fn user_process_entry_wrapper() {
 pub unsafe extern "C" fn fork_ret() {
     naked_asm!(
         // Call simulate_schedule_end to ensure process manager is unlocked
-        "call simulate_schedule_end",
+        "call {simulate_schedule_end}",
 
         "xor rsi, rsi",  // fork return 0 for child process
         "mov rdi, r13",
         "call {sysret_to_user}",
         "2: jmp 2b",     // Infinite loop as fallback
+        simulate_schedule_end = sym simulate_schedule_end,
         sysret_to_user = sym sysret_to_userspace,
     );
 }
 
-#[unsafe(no_mangle)]
 pub extern "C" fn simulate_schedule_end() {
     let pm = ProcessManager::get();
     if pm.is_locked() {
@@ -187,8 +190,7 @@ pub extern "C" fn simulate_schedule_end() {
     }
 }
 
-#[unsafe(no_mangle)]
-pub fn process_end() {
+pub extern "C" fn process_end() {
     let mut pm = ProcessManager::get().lock();
     let pid = pm.current_process.unwrap();
     let _ = pm.terminate_process(pid);

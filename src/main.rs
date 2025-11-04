@@ -58,11 +58,10 @@ fn panic(_info: &PanicInfo) -> ! {
 #[unsafe(naked)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn main() -> ! {
-    core::arch::naked_asm!("lea rsp, [_stack_top]", "call _main")
+    core::arch::naked_asm!("lea rsp, [_stack_top]", "call {_main}", _main = sym _main)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn _main() -> ! {
+extern "C" fn _main() -> ! {
     setup_logger();
     arch_mm::init::setup_gdt();
     log::info!("After setup gdt.");
