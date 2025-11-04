@@ -99,11 +99,6 @@ impl ProcessManager {
         self.processes.get_mut(&pid)
     }
 
-    /// Schedule the next process to run
-    pub fn schedule(&mut self) -> Option<ProcessId> {
-        self.scheduler.schedule()
-    }
-
     /// Switch to the next scheduled process
     pub fn schedule_next(&mut self, new_state: ProcessState) {
         let current = self.current_process();
@@ -118,7 +113,7 @@ impl ProcessManager {
             }
         }
         // Get next process from scheduler and switch to it
-        let next_pid = self.schedule().unwrap();
+        let next_pid = self.scheduler.next_process().unwrap();
         log::info!("Switching to process {:?}", next_pid);
         self.set_current_process(Some(next_pid));
 

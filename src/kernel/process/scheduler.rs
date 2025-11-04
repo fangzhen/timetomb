@@ -5,7 +5,6 @@
 
 use crate::kernel::process::ProcessId;
 use alloc::collections::VecDeque;
-use core::fmt;
 
 /// Trait for different scheduling algorithms
 pub trait Scheduler {
@@ -16,15 +15,7 @@ pub trait Scheduler {
     fn remove_process(&mut self, pid: ProcessId);
 
     /// Select the next process to run
-    fn schedule(&mut self) -> Option<ProcessId>;
-
-    /// Get the number of processes in the scheduler
-    fn process_count(&self) -> usize;
-
-    /// Check if scheduler is empty
-    fn is_empty(&self) -> bool {
-        self.process_count() == 0
-    }
+    fn next_process(&mut self) -> Option<ProcessId>;
 }
 
 /// Round-robin scheduler implementation
@@ -84,7 +75,7 @@ impl Scheduler for RoundRobinScheduler {
         self.ready_queue.retain(|&p| p != pid);
     }
 
-    fn schedule(&mut self) -> Option<ProcessId> {
+    fn next_process(&mut self) -> Option<ProcessId> {
         // The current process should already be back in the ready queue if it's still runnable
 
         // Get the next process from the front of the queue
@@ -93,21 +84,5 @@ impl Scheduler for RoundRobinScheduler {
         } else {
             None
         }
-    }
-
-    fn process_count(&self) -> usize {
-        let queue_count = self.ready_queue.len();
-        queue_count + 1
-    }
-}
-
-impl fmt::Display for RoundRobinScheduler {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "RoundRobinScheduler[Ready: {}, TimeSlice: {}]",
-            self.ready_queue.len(),
-            self.default_time_slice
-        )
     }
 }
