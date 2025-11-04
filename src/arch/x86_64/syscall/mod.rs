@@ -25,7 +25,7 @@ extern "C" fn syscall_dispatch(num: usize, regs: &PtRegs) -> i64 {
         return process::fork(regs).0 as i64;
     }
     if num == 3 {
-        process::yield_current();
+        process::yield_process();
         return 0;
     }
     if num == 128 {

@@ -16,7 +16,7 @@ use kernel::mm::memblock;
 use kernel::mm::paging;
 use kernel::mm::physical;
 use kernel::mm::slab;
-use kernel::process::idle;
+use kernel::process::idle_entry;
 use timetomb::arch::x86_64::SetupHeader;
 use timetomb::arch::x86_64::mm as share_mm;
 use timetomb::driver::uart;
@@ -107,8 +107,8 @@ extern "C" fn _main() -> ! {
     log::info!("Syscall init done");
     _ = crate::kernel::process::create_user_init();
     create_test_kernel_thread();
-    process::yield_current();
-    idle();
+    process::yield_process();
+    idle_entry();
 }
 
 fn test_mm() {
@@ -141,6 +141,6 @@ fn create_test_kernel_thread() {
 fn test_kernel_thread_entry() {
     log::info!("[Test kernel thread]: running!");
 
-    process::yield_current();
-    idle();
+    process::yield_process();
+    idle_entry();
 }

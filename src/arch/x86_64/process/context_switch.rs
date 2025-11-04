@@ -124,17 +124,9 @@ pub unsafe extern "C" fn save_restore_context(
 #[unsafe(naked)]
 pub unsafe extern "C" fn kernel_process_entry_wrapper() {
     naked_asm!(
-        // Call simulate_schedule_end to ensure process manager is unlocked
         "call {simulate_schedule_end}",
-        // RBX contains the actual entry point
-        // Set up a clean stack frame and jump to it.
-        "xor rbp, rbp", // Clear frame pointer
-        "push rbp",     // Push null frame pointer (for stack unwinding)
-        "and rsp, -16", // align rsp to 16 bytes
-        "mov rbp, rsp", // Set up frame pointer
         "call rbx",
         "call {process_end}",
-        "2: jmp 2b", // Infinite loop as fallback
         process_end = sym process_end,
         simulate_schedule_end = sym simulate_schedule_end,
     );
@@ -145,23 +137,22 @@ pub unsafe extern "C" fn kernel_process_entry_wrapper() {
 #[unsafe(naked)]
 pub unsafe extern "C" fn user_process_entry_wrapper() {
     naked_asm!(
-        // Call simulate_schedule_end to ensure process manager is unlocked
         "call {simulate_schedule_end}",
 
         // setup user stack to make user process return to label 3: process_end() syscall
         "lea rax, [3f]",
-        "mov rdx, [r13 + 0x18]",
+        "mov rdx, [r13 + 0x18]",  // rdx at offset 0x18 of PtRegs. rdx contains user rsp.
         "sub rdx, 8",
-        "mov [rdx], rax",
-        "mov [r13 + 0x18], rdx",
+        "mov [rdx], rax",         // push label 3: to user stack
+        "mov [r13 + 0x18], rdx",  // and update user rsp.
 
+        // sysret to user entry
         "mov rdi, r13",
         "xor rsi, rsi",
         "call {sysret_to_user}",
         "3:",
         "mov rdi, 1",  // process exit
         "call {syscall_to_kernel}",
-        "2: jmp 2b",   // Infinite loop as fallback
         sysret_to_user = sym sysret_to_userspace,
         syscall_to_kernel = sym syscall_to_kernelspace,
         simulate_schedule_end = sym simulate_schedule_end,
@@ -171,7 +162,6 @@ pub unsafe extern "C" fn user_process_entry_wrapper() {
 #[unsafe(naked)]
 pub unsafe extern "C" fn fork_ret() {
     naked_asm!(
-        // Call simulate_schedule_end to ensure process manager is unlocked
         "call {simulate_schedule_end}",
 
         "xor rsi, rsi",  // fork return 0 for child process
@@ -183,6 +173,7 @@ pub unsafe extern "C" fn fork_ret() {
     );
 }
 
+/// Simulate schedule end for newly create processes.
 pub extern "C" fn simulate_schedule_end() {
     let pm = ProcessManager::get();
     if pm.is_locked() {
@@ -193,6 +184,5 @@ pub extern "C" fn simulate_schedule_end() {
 pub extern "C" fn process_end() {
     let mut pm = ProcessManager::get().lock();
     let pid = pm.current_process.unwrap();
-    let _ = pm.terminate_process(pid);
-    //TODO cleanup: free memory etc.
+    pm.terminate_process(pid).unwrap();
 }

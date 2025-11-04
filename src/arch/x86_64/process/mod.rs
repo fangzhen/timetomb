@@ -9,5 +9,5 @@ pub mod context_switch;
 use crate::kernel::process;
 
 pub fn timer_tick() {
-    process::schedule_next()
+    process::yield_process()
 }
