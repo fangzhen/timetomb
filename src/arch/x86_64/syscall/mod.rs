@@ -16,62 +16,6 @@ const MSR_IA32_LSTAR: u32 = 0xc0000082;
 const MSR_IA32_FMASK: u32 = 0xc0000084;
 const MSR_IA32_EFER: u32 = 0xc0000080;
 
-#[unsafe(naked)]
-unsafe extern "C" fn syscall_entrypoint() {
-    naked_asm!(
-        // We save all user registers, since:
-        // - It should not rely on a specific ABI.
-        // - syscalls like fork() don't return in a normal execution flow.
-        "push r15",
-        "push r14",
-        "push r13",
-        "push r12",
-        "push r11",  // user rflags
-        "push r10",
-        "push r9",
-        "push r8",
-        "push rsp",
-        "push rbp",
-        "push rdi",
-        "push rsi",
-        "push rdx",  // user rsp
-        "push rcx",  // user rip
-        "push rbx",
-        "push rax",
-
-        // Save user stack pointer and align stack.
-        "mov rbp, rsp",
-
-        // First argument: syscall number (RAX)
-        "mov rdi, rax",
-        // Second argument: pointer to saved registers (pt_regs)
-        "mov rsi, rsp",
-        "call {dispatch}",  // return value is in RAX
-
-        // Restore user registers
-        "add rsp, 8",  // Don't restore rax
-        "pop rbx",
-        "pop rcx",
-        "pop rdx",
-        "pop rsi",
-        "pop rdi",
-        "pop rbp",
-        "add rsp, 8",  // Don't restore rsp
-        "pop r8",
-        "pop r9",
-        "pop r10",
-        "pop r11",
-        "pop r12",
-        "pop r13",
-        "pop r14",
-        "pop r15",
-
-        "mov rsp, rdx",  // restore user rsp
-        "sysretq",
-        dispatch = sym syscall_dispatch,
-    );
-}
-
 extern "C" fn syscall_dispatch(num: usize, regs: &PtRegs) -> i64 {
     if num == 1 {
         process_end();
@@ -138,27 +82,64 @@ pub fn syscall_to_kernelspace(num: usize) -> i64 {
     return ret_value;
 }
 
-/// TODO: duplicate with syscall_entrypoint
-pub fn sysret_to_userspace(regs: &PtRegs) {
-    unsafe {
-        asm!(
-            "mov rax, [rdi + 0x00]",
-            "mov rbx, [rdi + 0x08]",
-            "mov rcx, [rdi + 0x10]",
-            "mov rdx, [rdi + 0x18]",
-            "mov rsp, [rdi + 0x38]",
-            "mov r8,  [rdi + 0x40]",
-            "mov r9,  [rdi + 0x48]",
-            "mov r10, [rdi + 0x50]",
-            "mov r11, [rdi + 0x58]",
-            "mov r12, [rdi + 0x60]",
-            "mov r13, [rdi + 0x68]",
-            "mov r14, [rdi + 0x70]",
-            "mov r15, [rdi + 0x78]",
-            "mov rsp, rdx",  // restore user rsp
-            "sysretq",             // to user space!
-            in("rdi") regs,
-            out("r11") _,
-        );
-    };
+#[unsafe(naked)]
+unsafe extern "C" fn syscall_entrypoint() {
+    naked_asm!(
+        // We save all user registers, since:
+        // - It should not rely on a specific ABI.
+        // - syscalls like fork() don't return in a normal execution flow.
+        "push r15",
+        "push r14",
+        "push r13",
+        "push r12",
+        "push r11",  // user rflags
+        "push r10",
+        "push r9",
+        "push r8",
+        "push rsp",
+        "push rbp",
+        "push rdi",
+        "push rsi",
+        "push rdx",  // user rsp
+        "push rcx",  // user rip
+        "push rbx",
+        "push rax",
+
+        "mov rdi, rax",        // First argument: syscall number (RAX)
+        "mov rsi, rsp",        // Second argument: pointer to saved registers (pt_regs)
+        "call {dispatch}",
+
+        "mov rsi, rax",        // return value is in RAX
+        "mov rdi, rsp",
+        "call {sysret_to_user}",
+        dispatch = sym syscall_dispatch,
+        sysret_to_user = sym sysret_to_userspace,
+    );
+}
+
+/// Return to userspace by sysret.
+/// Notice that kernel rsp is not saved. When trap into kernel next time, it uses
+/// kernel stack from scratch.
+#[unsafe(naked)]
+pub unsafe extern "C" fn sysret_to_userspace(regs: &PtRegs, ret_value: u64) {
+    naked_asm!(
+        "mov rax, rsi", // syscall return value
+        "mov rbx, [rdi + 0x08]",
+        "mov rcx, [rdi + 0x10]",
+        "mov rdx, [rdi + 0x18]",
+        "mov rsi, [rdi + 0x20]",
+        "mov rbp, [rdi + 0x30]",
+        "mov rsp, [rdi + 0x38]",
+        "mov r8,  [rdi + 0x40]",
+        "mov r9,  [rdi + 0x48]",
+        "mov r10, [rdi + 0x50]",
+        "mov r11, [rdi + 0x58]",
+        "mov r12, [rdi + 0x60]",
+        "mov r13, [rdi + 0x68]",
+        "mov r14, [rdi + 0x70]",
+        "mov r15, [rdi + 0x78]",
+        "mov rdi, [rdi + 0x28]", // restore rdi at last.
+        "mov rsp, rdx",          // restore user rsp
+        "sysretq",               // to user space!
+    );
 }

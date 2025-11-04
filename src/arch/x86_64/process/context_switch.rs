@@ -154,11 +154,12 @@ pub unsafe extern "C" fn user_process_entry_wrapper() {
         "mov [r13 + 0x18], rdx",
 
         "mov rdi, r13",
+        "xor rsi, rsi",
         "call {sysret_to_user}",
         "3:",
         "mov rdi, 1",  // process exit
         "call {syscall_to_kernel}",
-        "2: jmp 2b", // Infinite loop as fallback
+        "2: jmp 2b",   // Infinite loop as fallback
         sysret_to_user = sym sysret_to_userspace,
         syscall_to_kernel = sym syscall_to_kernelspace,
     );
@@ -169,10 +170,11 @@ pub unsafe extern "C" fn fork_ret() {
     naked_asm!(
         // Call simulate_schedule_end to ensure process manager is unlocked
         "call simulate_schedule_end",
-        // param to sysret_to_user
+
+        "xor rsi, rsi",  // fork return 0 for child process
         "mov rdi, r13",
         "call {sysret_to_user}",
-        "2: jmp 2b", // Infinite loop as fallback
+        "2: jmp 2b",     // Infinite loop as fallback
         sysret_to_user = sym sysret_to_userspace,
     );
 }
