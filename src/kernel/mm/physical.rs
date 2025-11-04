@@ -3,8 +3,8 @@ use core::{
     cmp::min,
     slice::{from_raw_parts, from_raw_parts_mut},
 };
-use intrusive_collections::{intrusive_adapter, LinkedList, LinkedListLink};
-use timetomb::kernel::mm::{LinearAddr, PhysicalAddr, PAGE_SIZE};
+use intrusive_collections::{LinkedList, LinkedListLink, intrusive_adapter};
+use timetomb::kernel::mm::{LinearAddr, PAGE_SIZE, PhysicalAddr};
 
 use crate::{arch::x86_64::mm::direct_map_l2p, kernel::mm::memblock};
 use crate::{arch::x86_64::mm::direct_map_p2l, library::bitops};

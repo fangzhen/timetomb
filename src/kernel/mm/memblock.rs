@@ -3,7 +3,7 @@ use core::cmp::min;
 use log::info;
 use timetomb::{
     arch::x86_64::mm::{MemoryDescriptor, MemoryType},
-    kernel::mm::{PhysicalAddr, PAGE_FLAG_PHYSICAL, PAGE_SIZE},
+    kernel::mm::{PAGE_FLAG_PHYSICAL, PAGE_SIZE, PhysicalAddr},
 };
 
 use crate::{arch::x86_64::mm::direct_map_p2l, library::bitops::align_ceil};

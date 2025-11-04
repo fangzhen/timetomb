@@ -1,6 +1,6 @@
 use crate::arch::x86_64::ffi_shared;
 use crate::arch::x86_64::mm as arch_mm;
-use crate::kernel::mm::{LinearAddr, PhysicalAddr, PAGE_SIZE};
+use crate::kernel::mm::{LinearAddr, PAGE_SIZE, PhysicalAddr};
 pub const VMKERNEL_ENTRY_ADDRESS: usize = ffi_shared::VMKERNEL_ENTRY_ADDRESS;
 /* page entry bitflags */
 const PAGE_BIT_P_PRESENT: usize = 1 << 0;

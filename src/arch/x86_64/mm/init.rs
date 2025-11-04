@@ -2,7 +2,6 @@ use core::arch::asm;
 
 use timetomb::arch::x86_64::DescriptorTablePointer;
 
-
 const GDT_ENTRY_COUNT: usize = 7;
 pub static mut GDT_ENTRIES: [super::GdtEntry; GDT_ENTRY_COUNT] = [super::GdtEntry {
     limit15_0: 0,

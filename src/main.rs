@@ -17,8 +17,8 @@ use kernel::mm::paging;
 use kernel::mm::physical;
 use kernel::mm::slab;
 use kernel::process::idle;
-use timetomb::arch::x86_64::mm as share_mm;
 use timetomb::arch::x86_64::SetupHeader;
+use timetomb::arch::x86_64::mm as share_mm;
 use timetomb::driver::uart;
 use timetomb::kernel::logger::Logger;
 

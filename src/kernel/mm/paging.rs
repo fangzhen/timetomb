@@ -2,11 +2,11 @@ use timetomb::arch::x86_64::ffi_shared::VMKERNEL_ENTRY_ADDRESS;
 use timetomb::arch::x86_64::mm::MemoryDescriptor;
 use timetomb::arch::x86_64::mm::MemoryType;
 // TODO x86_64
+use timetomb::arch::x86_64::SetupHeader;
 use timetomb::arch::x86_64::mm as arch_mm;
 use timetomb::arch::x86_64::mm::add_page_mapping;
 use timetomb::arch::x86_64::mm::memzero;
-use timetomb::arch::x86_64::SetupHeader;
-use timetomb::kernel::mm::{LinearAddr, PhysicalAddr, PAGE_SIZE};
+use timetomb::kernel::mm::{LinearAddr, PAGE_SIZE, PhysicalAddr};
 
 use crate::arch::x86_64::mm::direct_map_p2l;
 use crate::library::bitops;

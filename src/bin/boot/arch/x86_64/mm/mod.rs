@@ -1,5 +1,5 @@
 use timetomb::arch::x86_64::mm as arch_mm;
-use timetomb::kernel::mm::{LinearAddr, PhysicalAddr, PAGE_SIZE};
+use timetomb::kernel::mm::{LinearAddr, PAGE_SIZE, PhysicalAddr};
 
 #[derive(Debug)]
 pub struct PgtMemory {

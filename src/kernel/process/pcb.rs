@@ -5,12 +5,12 @@
 
 use crate::{
     arch::x86_64::{
-        mm::{direct_map_l2p, direct_map_p2l, P2L_OFFSET_BASE, USER_STACK_OFFSET_BASE},
+        mm::{P2L_OFFSET_BASE, USER_STACK_OFFSET_BASE, direct_map_l2p, direct_map_p2l},
         process::{
             context::ProcessContext,
             context_switch::{kernel_process_entry_wrapper, user_process_entry_wrapper},
         },
-        syscall::{pt_regs::PtRegs, DEFAULT_USER_FLAGS},
+        syscall::{DEFAULT_USER_FLAGS, pt_regs::PtRegs},
     },
     kernel::mm::{paging::INIT_PT_ADDR, physical},
 };
@@ -22,7 +22,7 @@ use timetomb::{
         ffi_shared::VMKERNEL_ENTRY_ADDRESS,
         mm::{add_page_mapping, addr_to_page_entries, memzero},
     },
-    kernel::mm::{PhysicalAddr, PAGE_SIZE},
+    kernel::mm::{PAGE_SIZE, PhysicalAddr},
 };
 
 pub const KERNEL_STACK_PAGES: usize = 2;
