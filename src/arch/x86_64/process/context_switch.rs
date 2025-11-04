@@ -190,7 +190,7 @@ pub extern "C" fn simulate_schedule_end() {
 #[unsafe(no_mangle)]
 pub fn process_end() {
     let mut pm = ProcessManager::get().lock();
-    let pid = pm.current_process().unwrap();
+    let pid = pm.current_process.unwrap();
     let _ = pm.terminate_process(pid);
     //TODO cleanup: free memory etc.
 }

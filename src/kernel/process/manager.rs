@@ -13,7 +13,8 @@ static PROCESS_MANAGER: Once<spin::Mutex<ProcessManager>> = Once::new();
 
 /// Process manager that handles all process-related operations
 pub struct ProcessManager {
-    current_process: Option<ProcessId>,
+    /// Current running process
+    pub current_process: Option<ProcessId>,
     next_pid: ProcessId,
     processes: BTreeMap<ProcessId, ProcessControlBlock>,
     scheduler: RoundRobinScheduler,
@@ -84,11 +85,6 @@ impl ProcessManager {
         Ok(pid)
     }
 
-    /// Get the currently running process ID
-    pub fn current_process(&self) -> Option<ProcessId> {
-        self.current_process
-    }
-
     /// Get a reference to a process by ID
     pub fn get_process(&self, pid: ProcessId) -> Option<&ProcessControlBlock> {
         self.processes.get(&pid)
@@ -101,7 +97,7 @@ impl ProcessManager {
 
     /// Switch to the next scheduled process
     pub fn schedule_next(&mut self, new_state: ProcessState) {
-        let current = self.current_process();
+        let current = self.current_process;
 
         if let Some(current_pid) = current {
             if new_state == ProcessState::Ready {
@@ -161,7 +157,7 @@ impl ProcessManager {
     /// Fork the current process - creates a child process that is a copy of the parent
     /// Returns the child PID in the parent process and 0 in the child process
     pub fn fork(&mut self, regs: &PtRegs) -> Result<ProcessId, &'static str> {
-        let current_pid = self.current_process().ok_or("No current process to fork")?;
+        let current_pid = self.current_process.ok_or("No current process to fork")?;
 
         // Create new PID for child
         let child_pid = self.next_pid;
